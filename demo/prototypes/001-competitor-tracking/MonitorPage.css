@@ -1,0 +1,223 @@
+/* P-001 /monitor 历史记录页样式 */
+.monitor-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #1a1a1a;
+}
+
+.monitor-page h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 20px;
+  color: #111;
+}
+
+/* 筛选区 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.filter-bar label {
+  font-size: 14px;
+  color: #555;
+  white-space: nowrap;
+}
+
+.filter-bar select {
+  padding: 6px 10px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  min-width: 260px;
+  background: #fff;
+}
+
+/* 顶部错误 banner — AC-008/异常-4 */
+.error-banner {
+  padding: 12px 16px;
+  background: #fff3f3;
+  border: 1px solid #f5c6c6;
+  border-radius: 6px;
+  color: #b00020;
+  font-size: 14px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.error-banner button {
+  padding: 4px 12px;
+  font-size: 13px;
+  border: 1px solid #b00020;
+  background: transparent;
+  color: #b00020;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* 记录表 */
+.records-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.records-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.records-count {
+  font-size: 13px;
+  color: #777;
+}
+
+.records-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.records-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: #f5f5f5;
+  border-bottom: 2px solid #e0e0e0;
+  font-weight: 600;
+  color: #444;
+  white-space: nowrap;
+}
+
+.records-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eee;
+  vertical-align: top;
+}
+
+.records-table tr:hover > td {
+  background: #fafafa;
+}
+
+/* 变化类型标签 */
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: #e8f0fe;
+  color: #1a56db;
+}
+
+.tag-ai-error {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* 重要程度标签 */
+.importance-high {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.importance-medium {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #fef9c3;
+  color: #92400e;
+}
+
+.importance-low {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.importance-unknown {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* summary 截断 / 展开 */
+.summary-cell {
+  max-width: 340px;
+}
+
+.summary-truncated {
+  color: #333;
+  line-height: 1.5;
+}
+
+.expand-btn {
+  margin-top: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #1a56db;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.detail-row td {
+  background: #f9fafb;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.detail-box {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #374151;
+  white-space: pre-wrap;
+}
+
+/* 状态：加载 / 空 / 错误 */
+.state-box {
+  padding: 40px 16px;
+  text-align: center;
+  color: #888;
+  font-size: 14px;
+  border: 1px dashed #ddd;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.state-box .retry-btn {
+  margin-top: 12px;
+  padding: 6px 16px;
+  font-size: 13px;
+  border: 1px solid #aaa;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
