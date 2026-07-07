@@ -108,13 +108,13 @@ spec: 001-competitor-tracking
 
 ### T4. 数据库选型：历史记录存储与查询
 
-**Task**：确定 MVP 数据库选型，支持 Python 写入历史快照 + Node.js 前端查询历史记录
+**Task**：确定 MVP 数据库选型，支持 Python APScheduler 写入历史快照 + FastAPI REST API 读取供前端查询
 
 **Decision**：**SQLite（WAL 模式）** + **Alembic** 做 schema 迁移；`crawled_at` 字段加索引
 
 **Rationale**：
 - SQLite 零部署，文件即数据库，完全符合 MVP 最小复杂度
-- WAL（Write-Ahead Logging）模式：`PRAGMA journal_mode=WAL` 允许并发侧管理 schema，Node.js 只读不迁移，职责清晰
+- WAL（Write-Ahead Logging）模式：`PRAGMA journal_mode=WAL` 允许 APScheduler（写）与 FastAPI（读）并发访问同一文件，无锁冲突；Alembic 单独管理 schema，职责清晰
 - `crawled_at` 加索引支持前端"按时间查看历史"的查询性能
 
 **迁移阈值**（何时切 PostgreSQL）：
