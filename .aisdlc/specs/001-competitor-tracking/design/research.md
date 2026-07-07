@@ -15,7 +15,7 @@ spec: 001-competitor-tracking
 ## TL;DR（最大风险 + 推荐方向）
 
 - **最大风险**：目标网站反爬策略未知，采集稳定性无法提前保证
-- **推荐方向**：requests+BS4 为主采集层 + APScheduler 调度 + SQLite WAL（Python 后端内部存储）+ FastAPI REST API；前端 Vercel 部署（frontend/ 子目录），backend/ 独立运行；LLM 使用 Claude Haiku 4.5 做 HTML 变化语义解读
+- **推荐方向**：requests+BS4 为主采集层 + APScheduler 调度 + JSON 文件 + filelock（Python 后端内部存储）+ FastAPI REST API；前端 Vercel 部署（frontend/ 子目录），backend/ 独立运行；LLM 使用 Claude Haiku 4.5 做 HTML 变化语义解读
 
 ---
 
@@ -106,30 +106,32 @@ spec: 001-competitor-tracking
 
 ---
 
-### T4. 数据库选型：历史记录存储与查询
+### T4. 数据存储选型：历史记录存储与查询
 
-**Task**：确定 MVP 数据库选型，支持 Python APScheduler 写入历史快照 + FastAPI REST API 读取供前端查询
+**Task**：确定 MVP 存储选型，支持 Python APScheduler 写入历史快照 + FastAPI REST API 读取供前端查询
 
-**Decision**：**SQLite（WAL 模式）** + **Alembic** 做 schema 迁移；`crawled_at` 字段加索引
+**Decision**：**JSON 文件 + filelock**；每个监控 URL 对应一个 `data/{url_slug}.json` 文件，内含 records 数组；`filelock` 保证并发写安全
 
 **Rationale**：
-- SQLite 零部署，文件即数据库，完全符合 MVP 最小复杂度
-- WAL（Write-Ahead Logging）模式：`PRAGMA journal_mode=WAL` 允许 APScheduler（写）与 FastAPI（读）并发访问同一文件，无锁冲突；Alembic 单独管理 schema，职责清晰
-- `crawled_at` 加索引支持前端"按时间查看历史"的查询性能
+- JSON 文件零依赖（无数据库进程、无驱动、无 schema 迁移工具），部署最简单
+- MVP 数据量小（数十个 URL × 数百条记录），JSON 读写性能完全够用
+- 每 URL 独立文件：写锁粒度小（仅锁单个文件），APScheduler `max_instances=1` 已保证同 URL 不并发写，filelock 作为额外安全兜底
+- FastAPI 读取时直接加载 JSON，按 `crawled_at` 倒序，返回前 N 条；无需 ORM 或查询优化
+- 回滚/备份极简：`cp data/ data_backup/` 即完成全量备份
 
-**迁移阈值**（何时切 PostgreSQL）：
-- 历史记录超过 **50 万行**，或
-- 需要多实例部署，或
-- 需要全文检索（如搜索 AI 解读内容）
+**迁移阈值**（何时升级存储）：
+- 单 URL 历史记录超过 **1 万条**，或
+- 需要多实例部署（文件不可跨机器共享），或
+- 需要全文检索 / 复杂聚合查询
 
 **Alternatives considered**：
-- **PostgreSQL**：生产级，但需要独立服务进程，MVP 部署复杂度不值
-- **MongoDB**：文档型存储适合变化数据，但 Node.js + Python 双驱动配置复杂，且 WAL 问题仍存在
-- **直接 JSON 文件存储**：无法支持结构化查询与历史记录翻页
+- **SQLite WAL + Alembic**：并发安全但引入额外依赖（sqlalchemy、alembic），schema 迁移增加复杂度；MVP 规模不需要
+- **PostgreSQL**：生产级但需独立服务进程，MVP 部署复杂度不值
+- **MongoDB**：文档型存储适合变化数据，但需要独立进程，过度工程
 
 **Evidence**：
-- SQLite WAL 文档：并发读写不冲突，写锁仅在 checkpoint 时出现
-- Alembic 官方文档：`alembic upgrade head` 执行迁移
+- `filelock` PyPI 库：跨平台文件锁，支持 `with FileLock(path)` 上下文管理
+- JSON 文件结构示例：`{ "url": "...", "records": [{ "id", "crawled_at", "html_content", "change_type", "summary", "importance" }, ...] }`
 
 ---
 
@@ -145,7 +147,7 @@ spec: 001-competitor-tracking
 - Vercel 前端与 Python 后端运行在不同机器，文件共享不可行
 - Python 后端新增 `api.py`（FastAPI 推荐：自带 OpenAPI 文档，async 支持好）
 - 前端通过 `NEXT_PUBLIC_API_BASE_URL` 环境变量调用 REST 接口，本地/生产只改变量
-- FastAPI 与 APScheduler 同进程运行：调度任务写库，API 路由读库，SQLite WAL 保证并发安全
+- FastAPI 与 APScheduler 同进程运行：调度任务写 JSON 文件，API 路由读 JSON 文件，filelock 保证并发安全
 
 **核心接口（最小集）**：
 - `GET /api/snapshots?url={url}&limit=20` — 查询某 URL 的历史记录列表
@@ -232,7 +234,7 @@ myapp/                        # GitHub 仓库根目录
 | LLM | claude-haiku-4-5 via Anthropic SDK，结构化 JSON 输出 | T1 |
 | 调度 | APScheduler IntervalTrigger + max_instances=1 + tenacity 重试 | T2 |
 | 采集 | requests+BS4 主采集，Playwright JS 渲染 fallback，UA 轮换+域名级延迟 | T3 |
-| 数据库 | SQLite WAL + Alembic 迁移，crawled_at 索引 | T4 |
+| 数据存储 | JSON 文件 + filelock，每 URL 一个文件，按 crawled_at 倒序 | T4 |
 | 前后端通信 | REST API（FastAPI/Flask）；Vercel 前端通过 NEXT_PUBLIC_API_BASE_URL 调用后端 | T5+T6 |
 | 仓库结构/部署 | 同仓 GitHub；frontend/ 部署 Vercel，backend/ 独立运行；vercel.json 配置路由 | T6 |
 

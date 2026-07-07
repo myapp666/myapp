@@ -38,7 +38,7 @@ last_updated: 2026-07-07
 - 竞对信息配置：通过 `.env` 的 `MONITOR_URLS` 管理监控 URL 列表；竞对字段：name、website_url、industry、notes
 - Python 后端定时采集：按 `MONITOR_INTERVAL`（分钟）间隔，使用 requests+BeautifulSoup4 抓取 HTML；JS 渲染页面 fallback 到 Playwright；UA 轮换 + 域名级随机延迟（10–30s）
 - AI 变化解读：调用 Claude Haiku 4.5（`AI_API_KEY`），对比前后快照，输出结构化 JSON（change_type / summary / importance）
-- 数据存储：SQLite（WAL 模式）+ Alembic 迁移，`crawled_at` 加索引；仅 Python 后端写入
+- 数据存储：JSON 文件（`backend/data/{url_slug}.json`）+ filelock 并发写安全；仅 Python 后端写入
 - REST API：FastAPI 暴露查询接口（`GET /api/snapshots`、`GET /api/urls`）；与 APScheduler 同进程运行
 - 前端展示：Next.js 历史记录页，按 URL 下拉筛选 + 时间倒序列表 + 单条详情查看；通过 `NEXT_PUBLIC_API_BASE_URL` 调用后端
 - 部署： 子目录部署到 Vercel（GitHub push 自动触发）；`backend/` 独立运行（本地/VPS）；根目录 `vercel.json` 配置路由
@@ -102,7 +102,7 @@ last_updated: 2026-07-07
 | `.env` 配置读取（MONITOR_URLS / MONITOR_INTERVAL / AI_API_KEY） | P0 / Must | MVP | Python 后端读取；APScheduler max_instances=1；tenacity 重试 |
 | requests+BS4 HTML 采集 | P0 / Must | MVP | Playwright fallback for SPA |
 | Claude Haiku 4.5 AI 变化解读 | P0 / Must | MVP | 结构化 JSON 输出；依赖 AI_API_KEY |
-| SQLite WAL 存储 + Alembic 迁移 | P0 / Must | MVP | crawled_at 索引；Python 独占写入 |
+| JSON 文件存储 + filelock | P0 / Must | MVP | 每 URL 一个 JSON 文件；filelock 写安全；Python 独占写入 |
 | FastAPI REST API（/api/snapshots、/api/urls） | P0 / Must | MVP | 与 APScheduler 同进程；CORS 配置 |
 | Next.js 历史记录页（URL 筛选 + 时间列表 + 详情） | P0 / Must | MVP | 通过 NEXT_PUBLIC_API_BASE_URL 调用 |
 | Vercel 部署（GitHub push 触发） | P0 / Must | MVP | vercel.json 路由；frontend/ 子目录构建 |
@@ -120,7 +120,7 @@ last_updated: 2026-07-07
 - **规则-2：无变化不存库**：若 HTML diff 为空（内容完全一致），不调用 LLM，不写入新记录
 - **规则-3：AI 解读失败降级**：LLM 调用失败（超时/API 错误）时，记录存库但 summary 字段标记为 `"[AI 解读失败，原因: {error}]"`，不丢失采集快照
 - **规则-4：并发控制**：同一 URL 的采集任务 `max_instances=1`，上一轮未完成时跳过本轮触发
-- **规则-5：前端只读**：Next.js 前端只通过 REST API 读取，不直接访问 SQLite；SQLite 仅 Python 进程写入
+- **规则-5：前端只读**：Next.js 前端只通过 REST API 读取，不直接访问 JSON 文件；JSON 文件仅 Python 进程写入
 
 ---
 
@@ -185,5 +185,5 @@ last_updated: 2026-07-07
 
 - `requirements/solution.md`：推荐方案（`.env` 驱动轻量服务）、验证清单 V-001~V-004、Impact Analysis
 - `requirements/raw.md`：第 1–7 轮澄清记录（技术栈/字段/配置管理/功能扩展决策）
-- `design/research.md`：T1（LLM 选型）、T2（APScheduler）、T3（requests+BS4）、T4（SQLite WAL）、T5（FastAPI REST API）、T6（Vercel+GitHub 部署）
+- `design/research.md`：T1（LLM 选型）、T2（APScheduler）、T3（requests+BS4）、T4（JSON 文件 + filelock）、T5（FastAPI REST API）、T6（Vercel+GitHub 部署）
 - 术语与口径：无 `project/memory/glossary.md`（CONTEXT GAP，不阻断）
