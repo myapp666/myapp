@@ -137,65 +137,82 @@ spec: 001-competitor-tracking
 
 **Task**：确定 Python 后端（写）与 Node.js 前端（读）的通信/数据共享方式
 
-**Decision**：**共享 SQLite 文件**（Python 写 / Node.js 读），不引入 REST API 层
+**Decision**：**REST API**（Python 后端暴露 HTTP 接口，Vercel 前端通过环境变量调用）
+
+> 原结论「共享 SQLite 文件」被 T6 Vercel 部署约束推翻：前端部署在 Vercel，无法访问后端本地文件系统，必须改用网络接口。
 
 **Rationale**：
-- Python 写入历史快照到 SQLite；Node.js 通过 `better-sqlite3`（同步）或 `sqlite3`（异步）直接查询同一文件
-- WAL 模式保证 Python 写入时 Node.js 仍可读，无需锁等待
-- 避免引入 Python REST API 服务（如 FastAPI），减少进程数与配置复杂度
-- MVP 场景：同机部署，文件路径通过 `.env` 共享，无需网络通信
+- Vercel 前端与 Python 后端运行在不同机器，文件共享不可行
+- Python 后端新增 `api.py`（FastAPI 推荐：自带 OpenAPI 文档，async 支持好）
+- 前端通过 `NEXT_PUBLIC_API_BASE_URL` 环境变量调用 REST 接口，本地/生产只改变量
+- FastAPI 与 APScheduler 同进程运行：调度任务写库，API 路由读库，SQLite WAL 保证并发安全
 
-**注意事项**：
-- Node.js 必须以只读方式打开 SQLite（`readonly: true`），避免意外写入破坏 Python 的事务
-- 文件路径通过 `DATABASE_URL` 环境变量统一配置，Python 和 Node.js 同时读取
+**核心接口（最小集）**：
+- `GET /api/snapshots?url={url}&limit=20` — 查询某 URL 的历史记录列表
+- `GET /api/snapshots/{id}` — 查询单条记录详情（含 AI 解读）
+- `GET /api/urls` — 返回当前 MONITOR_URLS 列表（前端下拉选择用）
 
 **Alternatives considered**：
-- **REST API（FastAPI）**：Python 暴露 HTTP 接口供 Node.js 调用；增加一个服务进程，MVP 过度设计
-- **消息队列（Redis/RabbitMQ）**：完全异步解耦，适合分布式，MVP 完全不需要
-- **文件系统（JSON 文件）**：无结构化查询，历史记录翻页/过滤实现困难，不选
+- **共享 SQLite 文件**：仅适用于同机部署；Vercel 部署后不可行
+- **消息队列（Redis/RabbitMQ）**：过度工程，REST API 已满足查询需求
+- **GraphQL**：查询灵活但前期搭建成本高，MVP REST 足够
 
 ---
 
-### T6. 仓库结构：现有 myapp 静态站如何扩展
+### T6. 仓库结构与部署：Vercel + GitHub 集成
 
-**Task**：确定现有纯静态 myapp（index.html/styles.css/script.js）如何扩展以容纳 Python 后端和 Node.js 前端
+**Task**：确定现有纯静态 myapp（index.html/styles.css/script.js）如何扩展以容纳 Python 后端和 Node.js 前端，并支持通过 Vercel 从 GitHub 自动部署
 
-**Decision**：**在现有 myapp 仓库内扩展**，新增 `backend/`（Python）和 `frontend/`（Node.js 应用）子目录；保留根目录现有静态文件不变
+**Decision**：**同一 GitHub 仓库，前端部署到 Vercel**，Python 后端独立运行（本地/VPS/云服务器）；前端通过 Vercel 环境变量指向后端 API；根目录保留现有 landing page
+
+**关键约束（Vercel 决定）**：
+- Vercel 不支持常驻 Python 进程（APScheduler 定时任务无法在 Vercel 上运行）
+- Vercel 适合静态资源 + Serverless API（Node.js），不适合 Python 后端
+- 因此 Python 采集服务必须独立部署（本地 / VPS / 云服务器），对外暴露 REST API
+- 这意味着前后端通信方式从「共享 SQLite 文件」**变更为 REST API**（T5 结论需联动更新）
 
 **Rationale**：
-- 现有 `index.html` / `styles.css` / `script.js` 是 landing page，与监控系统无依赖关系，保留原位不动
-- `backend/` 放 Python 采集服务：`requirements.txt`、`main.py`（APScheduler）、`models.py`（SQLAlchemy）、`alembic/`
-- `frontend/` 放 Node.js 应用：`package.json`、历史记录展示页（Express 或静态构建）
-- 同仓管理降低协作成本，`.env` 文件在根目录统一管理，两个子服务都能读取
-- 不新建仓库，避免权限/CI 配置分散
+- Vercel 与 GitHub 原生集成：push 到 main 分支自动触发构建部署，无需额外 CI/CD 配置
+- 前端（历史记录展示）天然适合 Vercel：Next.js/静态 + Serverless API 路由
+- Python 后端（定时采集 + AI 解读）保持独立，不受 Vercel 函数超时（30s）限制
+- SQLite 改为 Python 后端内部存储；前端通过后端 REST API 查询数据，不直接接触数据库
 
 **目录结构**：
 ```
-myapp/                        # 现有 landing page 保留
-├── index.html
+myapp/                        # GitHub 仓库根目录
+├── index.html                # 现有 landing page（Vercel 直接服务）
 ├── styles.css
 ├── script.js
-├── .env                      # 统一配置（MONITOR_INTERVAL, MONITOR_URLS, AI_API_KEY, DATABASE_URL）
-├── backend/                  # 新增：Python 采集服务
+├── vercel.json               # 新增：Vercel 路由配置（将 /monitor 指向 frontend/）
+├── backend/                  # Python 采集服务（不部署到 Vercel，独立运行）
 │   ├── requirements.txt
 │   ├── main.py               # APScheduler 入口
-│   ├── scraper.py   # requests + Playwright
+│   ├── scraper.py            # requests + Playwright
 │   ├── llm.py                # Anthropic SDK 调用
-│   ├── models.py             # SQLAlchemy models
+│   ├── models.py             # SQLAlchemy models + REST API（FastAPI/Flask）
+│   ├── api.py                # REST API 路由（供前端查询历史记录）
 │   └── alembic/              # 数据库迁移
-└── frontend/                 # 新增：Node.js 历史记录展示
+└── frontend/                 # Node.js/Next.js 历史记录展示（部署到 Vercel）
     ├── package.json
+    ├── next.config.js        # 或 vite.config.js
     └── ...
 ```
 
+**T5 联动修订（共享 SQLite → REST API）**：
+- 前端无法直接读 SQLite（文件不在同机），改为调用后端 REST API
+- 后端新增 `api.py`（FastAPI 或 Flask），暴露 `GET /api/snapshots?url=...&limit=20` 等接口
+- Vercel 前端通过环境变量 `NEXT_PUBLIC_API_BASE_URL` 指向后端服务地址
+- 本地开发：`NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`；生产：指向 VPS/云服务器地址
+
 **Alternatives considered**：
-- **新建独立仓库**：权限、CI、`.env` 管理分散，MVP 协作成本高，不选
-- **全部合并进 Node.js 单体**：用 Node.js 做定时采集，失去 Python 采集生态优势（requests/Playwright/BS4）
-- **Monorepo 工具（Turborepo/Nx）**：过度工程，MVP 两个子目录直接管理即可
+- **Python 后端也部署到 Vercel Serverless**：Vercel Python 函数不支持 APScheduler 常驻进程，定时任务无法运行，不可行
+- **全部用 Vercel Cron Jobs 替代 APScheduler**：Vercel Cron 免费版 1次/天，频率不足；且 Python 支持有限
+- **新建独立仓库（前后端分开）**：同仓 GitHub 管理更简单，Vercel 可通过 `Root Directory` 配置指定 frontend/ 子目录构建
 
 **Evidence**：
+- Vercel 部署文档：支持 `Root Directory` 设置，可将 `frontend/` 作为构建根目录
+- Vercel 环境变量：在 Dashboard 配置 `NEXT_PUBLIC_API_BASE_URL`，自动注入到构建
 - solution.md 第 7.1 节：「myapp 前端 → 扩展/新增页面；复用现有 Node.js 技术栈」
-- solution.md 第 7.4 节：「现有 myapp 为纯静态页面，需设计阶段确认仓库结构」
 
 ---
 
@@ -216,5 +233,5 @@ myapp/                        # 现有 landing page 保留
 | 调度 | APScheduler IntervalTrigger + max_instances=1 + tenacity 重试 | T2 |
 | 采集 | requests+BS4 主采集，Playwright JS 渲染 fallback，UA 轮换+域名级延迟 | T3 |
 | 数据库 | SQLite WAL + Alembic 迁移，crawled_at 索引 | T4 |
-| 前后端通信 | 共享 SQLite 文件（Python 写 / Node.js 只读） | T5 |
-| 仓库结构 | 现有 myapp 内扩展 backend/ + frontend/ 子目录，landing page 原位保留 | T6 |
+| 前后端通信 | REST API（FastAPI/Flask）；Vercel 前端通过 NEXT_PUBLIC_API_BASE_URL 调用后端 | T5+T6 |
+| 仓库结构/部署 | 同仓 GitHub；frontend/ 部署 Vercel，backend/ 独立运行；vercel.json 配置路由 | T6 |
