@@ -15,7 +15,7 @@ spec: 001-competitor-tracking
 ## TL;DR（最大风险 + 推荐方向）
 
 - **最大风险**：目标网站反爬策略未知，采集稳定性无法提前保证
-- **推荐方向**：requests+BS4 为主采集层 + APScheduler 调度 + SQLite WAL 共享存储（Python 写/Node 读）；LLM 使用 Claude Haiku 4.5 做 HTML 变化语义解读；仓库在现有 myapp 内扩展 backend/ 子目录
+- **推荐方向**：requests+BS4 为主采集层 + APScheduler 调度 + SQLite WAL（Python 后端内部存储）+ FastAPI REST API；前端 Vercel 部署（frontend/ 子目录），backend/ 独立运行；LLM 使用 Claude Haiku 4.5 做 HTML 变化语义解读
 
 ---
 
