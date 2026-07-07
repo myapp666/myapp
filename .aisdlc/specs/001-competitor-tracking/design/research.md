@@ -235,3 +235,4 @@ myapp/                        # GitHub 仓库根目录
 | 数据库 | SQLite WAL + Alembic 迁移，crawled_at 索引 | T4 |
 | 前后端通信 | REST API（FastAPI/Flask）；Vercel 前端通过 NEXT_PUBLIC_API_BASE_URL 调用后端 | T5+T6 |
 | 仓库结构/部署 | 同仓 GitHub；frontend/ 部署 Vercel，backend/ 独立运行；vercel.json 配置路由 | T6 |
+
