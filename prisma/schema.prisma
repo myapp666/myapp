@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -40,7 +40,7 @@ model Snapshot {
   competitorId Int
   userId       Int
   crawledAt    DateTime   @default(now())
-  htmlContent  String?    @db.LongText
+  htmlContent  String?
   changeType   String?    @db.VarChar(64)
   summary      String?    @db.Text
   importance   String?    @db.VarChar(16)
