@@ -1,67 +1,93 @@
-import hashlib
-import json
-import os
-from pathlib import Path
-from filelock import FileLock
-
-DATA_DIR = Path(__file__).parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
+from datetime import datetime, timezone
+from typing import Optional
+from sqlalchemy.orm import Session
+from database import SessionLocal, Snapshot
 
 
-def _url_to_slug(url: str) -> str:
-    return hashlib.md5(url.encode()).hexdigest()[:16]
+def save_snapshot(
+    competitor_id: int,
+    user_id: int,
+    html_content: str,
+    change_type: str,
+    summary: str,
+    importance: str,
+) -> Snapshot:
+    db: Session = SessionLocal()
+    try:
+        snap = Snapshot(
+            competitor_id=competitor_id,
+            user_id=user_id,
+            crawled_at=datetime.now(timezone.utc),
+            html_content=html_content,
+            change_type=change_type,
+            summary=summary,
+            importance=importance,
+        )
+        db.add(snap)
+        db.commit()
+        db.refresh(snap)
+        return snap
+    finally:
+        db.close()
 
 
-def _data_path(url: str) -> Path:
-    return DATA_DIR / f"{_url_to_slug(url)}.json"
+def get_latest_html(competitor_id: int) -> Optional[str]:
+    db: Session = SessionLocal()
+    try:
+        snap = (
+            db.query(Snapshot)
+            .filter(Snapshot.competitor_id == competitor_id)
+            .order_by(Snapshot.crawled_at.desc())
+            .first()
+        )
+        return snap.html_content if snap else None
+    finally:
+        db.close()
 
 
-def _lock_path(url: str) -> Path:
-    return DATA_DIR / f"{_url_to_slug(url)}.json.lock"
+def get_snapshots(user_id: int, competitor_id: int, limit: int = 20) -> list[dict]:
+    db: Session = SessionLocal()
+    try:
+        rows = (
+            db.query(Snapshot)
+            .filter(Snapshot.user_id == user_id, Snapshot.competitor_id == competitor_id)
+            .order_by(Snapshot.crawled_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "competitor_id": r.competitor_id,
+                "crawled_at": r.crawled_at.isoformat(),
+                "change_type": r.change_type,
+                "summary": r.summary,
+                "importance": r.importance,
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
 
 
-def save_record(url: str, record: dict) -> None:
-    path = _data_path(url)
-    lock = FileLock(str(_lock_path(url)), timeout=10)
-    with lock:
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-        else:
-            data = {"url": url, "records": []}
-        data["records"].append(record)
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def get_records(url: str, limit: int = 20) -> list:
-    path = _data_path(url)
-    if not path.exists():
-        return []
-    lock = FileLock(str(_lock_path(url)), timeout=10)
-    with lock:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    records = sorted(data.get("records", []), key=lambda r: r.get("crawled_at", ""), reverse=True)
-    return records[:limit]
-
-
-def get_urls() -> list:
-    urls = []
-    for p in DATA_DIR.glob("*.json"):
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            if "url" in data:
-                urls.append(data["url"])
-        except Exception:
-            continue
-    return urls
-
-
-def get_record_by_id(record_id: str) -> dict | None:
-    for p in DATA_DIR.glob("*.json"):
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            for r in data.get("records", []):
-                if r.get("id") == record_id:
-                    return r
-        except Exception:
-            continue
-    return None
+def get_snapshot_by_id(snapshot_id: int, user_id: int) -> Optional[dict]:
+    db: Session = SessionLocal()
+    try:
+        snap = (
+            db.query(Snapshot)
+            .filter(Snapshot.id == snapshot_id, Snapshot.user_id == user_id)
+            .first()
+        )
+        if not snap:
+            return None
+        return {
+            "id": snap.id,
+            "competitor_id": snap.competitor_id,
+            "crawled_at": snap.crawled_at.isoformat(),
+            "html_content": snap.html_content,
+            "change_type": snap.change_type,
+            "summary": snap.summary,
+            "importance": snap.importance,
+        }
+    finally:
+        db.close()
