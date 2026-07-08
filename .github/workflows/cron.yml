@@ -15,4 +15,4 @@ jobs:
         run: |
           curl -fsS -m 540 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "https://YOUR_DOMAIN.vercel.app/api/cron/collect"
+            "https://myapp-uyxu1.vercel.app/api/cron/collect"
