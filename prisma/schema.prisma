@@ -1,0 +1,52 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int          @id @default(autoincrement())
+  username     String       @db.VarChar(64)
+  email        String       @unique @db.VarChar(255)
+  passwordHash String       @db.VarChar(255)
+  createdAt    DateTime     @default(now())
+  competitors  Competitor[]
+  snapshots    Snapshot[]
+}
+
+model Competitor {
+  id         Int        @id @default(autoincrement())
+  userId     Int
+  name       String     @db.VarChar(255)
+  websiteUrl String     @db.VarChar(2048)
+  industry   String?    @db.VarChar(128)
+  notes      String?    @db.Text
+  createdAt  DateTime   @default(now())
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  snapshots  Snapshot[]
+
+  @@unique([websiteUrl, userId], name: "uq_competitor_url_user")
+  @@index([userId])
+}
+
+model Snapshot {
+  id           Int        @id @default(autoincrement())
+  competitorId Int
+  userId       Int
+  crawledAt    DateTime   @default(now())
+  htmlContent  String?    @db.LongText
+  changeType   String?    @db.VarChar(64)
+  summary      String?    @db.Text
+  importance   String?    @db.VarChar(16)
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([competitorId])
+  @@index([userId])
+}
