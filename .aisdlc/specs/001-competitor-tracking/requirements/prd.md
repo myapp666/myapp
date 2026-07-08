@@ -23,7 +23,7 @@ last_updated: 2026-07-07
 ## 1. 结论摘要
 
 - **目标**：构建自动化竞争情报监控系统，替代人工浏览/截图/比对的低效工作流
-- **In / Out 边界**：In = 用户注册/登录/JWT 鉴权 + 按用户隔离的竞对配置（SQLite）+ 定时自动采集 + AI 变化解读 + 历史记录查看；Out = 忘记密码/邮件重置、第三方 OAuth、多角色权限、实时告警、社媒抓取
+- **In / Out 边界**：In = 用户注册/登录/JWT 鉴权 + 按用户隔离的竞对配置+ 定时自动采集 + AI 变化解读 + 历史记录查看；Out = 忘记密码/邮件重置、第三方 OAuth、多角色权限、实时告警、社媒抓取
 - **MVP 边界**：① 用户登录（邮箱+密码，JWT 鉴权）② SQLite 承载用户账号与按用户隔离的竞对配置 ③ Python 后端采集 + FastAPI REST API ④ Next.js 前端部署到 Vercel（GitHub 推送自动部署）
 - **推荐方案**：SQLite + JWT 鉴权轻量服务——Python 后端（APScheduler + FastAPI + JWT 鉴权）+ Next.js 前端（Vercel）；引用 `requirements/solution.md#推荐方案`
 - **优先验证点**：V-001（AI 解读质量）、V-002（采集稳定性）、V-005（快照存储方案裁决）、V-006（JWT secret 安全）
@@ -37,9 +37,9 @@ last_updated: 2026-07-07
 **In**：
 - **用户认证**：邮箱+密码注册/登录（任意邮箱开放注册，无域名白名单/邀请码）；JWT（access token 有效期 24h）+ refresh token（7 天）；需登录才能访问历史记录页与 API 接口
 - **竞对信息配置**：登录用户通过前端页面自助添加/管理竞对（name、website_url、industry、notes），存入 SQLite，关联 `user_id`；不同用户各自维护独立列表，互不可见
-- Python 后端定时采集：按 `.env` 的 `MONITOR_INTERVAL`（分钟，全局配置）间隔，汇总所有用户的竞对配置后抓取 HTML（requests+BeautifulSoup4）；JS 渲染页面 fallback 到 Playwright；UA 轮换 + 域名级随机延迟（10–30s）
+- 后端定时采集：按 `.env` 的 `MONITOR_INTERVAL`（分钟，全局配置）间隔，汇总所有用户的竞对配置后抓取 HTML（requests+BeautifulSoup4）；JS 渲染页面 fallback 到 Playwright；UA 轮换 + 域名级随机延迟（10–30s）
 - AI 变化解读：调用 Claude Haiku 4.5（`.env` 的 `AI_API_KEY`，全局配置），对比前后快照，输出结构化 JSON（change_type / summary / importance）
-- 数据存储：SQLite 承载用户账号表 + 竞对配置表（`user_id` 外键）；采集快照存储方式（SQLite 或 JSON 文件 + filelock）由设计阶段裁决（对应 V-005）
+- 数据存储：用户账号表 + 竞对配置表（`user_id` 外键）；
 - REST API：FastAPI 暴露查询接口（`GET /api/snapshots`、`GET /api/urls`，均按当前登录用户过滤）；竞对配置管理接口（`POST/GET/PUT/DELETE /api/competitors`）；认证接口（`POST /auth/register`、`POST /auth/login`、`POST /auth/refresh`）；与 APScheduler 同进程运行；受保护接口需携带 Bearer token
 - 前端展示：Next.js 历史记录页（需登录）+ 竞对配置管理页，含登录页（`/login`）+ 注册页（`/register`）；通过 `NEXT_PUBLIC_API_BASE_URL` 调用后端
 - 部署：子目录部署到 Vercel（GitHub push 自动触发）；`backend/` 独立运行（本地/VPS）；根目录 `vercel.json` 配置路由
@@ -91,7 +91,6 @@ last_updated: 2026-07-07
 ### 3.2 场景 S-002：定时采集与 AI 解读
 
 - **触发**：APScheduler 按 `.env` 的 `MONITOR_INTERVAL`（全局配置）触发采集任务
-- **参与者**：Python 后端（无人工干预）
 - **目标**：汇总所有用户的竞对配置，自动抓取各 URL 的 HTML，与上次快照对比，若有变化则调用 LLM 生成结构化解读并存库
 - **成功标准**：
   1. 每个竞对 URL 每次调度最多触发一次采集（`max_instances=1`）

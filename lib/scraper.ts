@@ -40,6 +40,17 @@ async function fetchWithPlaywright(url: string): Promise<string> {
 }
 
 async function fetchOnce(url: string): Promise<string> {
+  // Vercel Serverless 跳过 Playwright（50MB 函数大小限制会炸）
+  if (process.env.VERCEL) {
+    const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+    const resp = await axios.get<string>(url, {
+      headers: { 'User-Agent': ua },
+      timeout: 30_000,
+      responseType: 'text',
+    });
+    return resp.data;
+  }
+
   const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
   const resp = await axios.get<string>(url, {
     headers: { 'User-Agent': ua },

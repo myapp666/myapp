@@ -1,7 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-const client = new Anthropic({ apiKey: process.env.AI_API_KEY });
-const MODEL = 'claude-haiku-4-5-20251001';
+const apiKey = process.env.AI_API_KEY ?? process.env.ANTHROPIC_AUTH_TOKEN;
+const baseURL = process.env.ANTHROPIC_BASE_URL;
+const MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
+
+const client = new Anthropic({
+  apiKey,
+  ...(baseURL ? { baseURL } : {}),
+});
 
 const PROMPT_TMPL = `你是一位竞争情报分析师。请分析以下网页变更并输出 JSON。
 

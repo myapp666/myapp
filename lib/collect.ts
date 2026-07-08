@@ -1,6 +1,7 @@
 import { prisma } from './db';
 import { fetchHtml, diffHtml } from './scraper';
 import { analyzeChange } from './llm';
+import { sendChangeNotification } from './mailer';
 
 async function collectCompetitor(competitorId: number): Promise<void> {
   const competitor = await prisma.competitor.findUnique({ where: { id: competitorId } });
@@ -28,7 +29,7 @@ async function collectCompetitor(competitorId: number): Promise<void> {
   }
 
   const analysis = await analyzeChange(competitor.websiteUrl, diff);
-  await prisma.snapshot.create({
+  const snapshot = await prisma.snapshot.create({
     data: {
       competitorId,
       userId: competitor.userId,
@@ -39,6 +40,28 @@ async function collectCompetitor(competitorId: number): Promise<void> {
     },
   });
   console.info(`已保存变更 competitor_id=${competitorId} change_type=${analysis.change_type}`);
+
+  // 邮件通知（仅在用户开启时）
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: competitor.userId },
+      select: { email: true, username: true, emailNotifyEnabled: true },
+    });
+    if (user?.emailNotifyEnabled) {
+      sendChangeNotification({
+        toEmail: user.email,
+        toUsername: user.username,
+        competitorName: competitor.name,
+        competitorUrl: competitor.websiteUrl,
+        changeType: analysis.change_type,
+        summary: analysis.summary,
+        importance: analysis.importance,
+        crawledAt: snapshot.crawledAt.toISOString(),
+      }).catch((err) => console.error('邮件发送失败', err));
+    }
+  } catch (err) {
+    console.error('查询用户/发送邮件出错', err);
+  }
 }
 
 export async function collectAll(): Promise<void> {

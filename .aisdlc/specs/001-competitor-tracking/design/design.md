@@ -24,8 +24,8 @@ spec: 001-competitor-tracking
 ## 1. 结论摘要（v3：Next.js 单体架构）
 
 - **目标**：构建自动化竞争情报监控系统，替代人工浏览/截图/比对的低效工作流
-- **In / Out**：In = 用户注册/登录（JWT 鉴权）+ MySQL 统一存储（用户账号 + 竞对配置 + 采集快照）+ Vercel Cron 定时采集 + Claude Haiku 4.5 语义解读 + 历史记录查看（按 user_id 隔离）；Out = 忘记密码/邮件重置、第三方 OAuth、多角色权限、实时告警、社媒抓取
-- **推荐方案**：Next.js 15 App Router 单体应用——前端页面 + API Routes + 业务逻辑全部在同一 Next.js 项目中，Prisma ORM 连接 MySQL，部署到 Vercel，Vercel Cron Jobs 驱动定时采集
+- **In / Out**：In = 用户注册/登录（JWT 鉴权）+ PostgreSQL 统一存储（用户账号 + 竞对配置 + 采集快照）+ Vercel Cron 定时采集 + Claude Haiku 4.5 语义解读 + 历史记录查看（按 user_id 隔离）；Out = 忘记密码/邮件重置、第三方 OAuth、多角色权限、实时告警、社媒抓取
+- **推荐方案**：Next.js 15 App Router 单体应用——前端页面 + API Routes + 业务逻辑全部在同一 Next.js 项目中，Prisma ORM 连接 PostgreSQL，部署到 Vercel，Vercel Cron Jobs 驱动定时采集
 - **关键取舍**：v2 Python FastAPI + Next.js 分离架构因需维护两套运行时（Python VPS + Vercel）而被废弃；Next.js 单体消除了跨域 CORS 复杂度，减少运维负担；APScheduler 替换为 Vercel Cron Jobs，无需常驻进程
 - **优先验证点**：V-001（Haiku 4.5 解读质量）、V-002（定时采集稳定性 >90%）
 
@@ -58,7 +58,7 @@ spec: 001-competitor-tracking
   - Anthropic API（Claude Haiku 4.5 语义解读）
   - Vercel（应用托管、CI/CD、Cron Jobs）
   - GitHub（代码仓库）
-  - MySQL 数据库（PlanetScale / 自托管）
+  - PostgreSQL 数据库（Supabase / 自托管）
 - **系统边界**：单一 Next.js 应用，页面与 API 同域，无跨服务通信
 - **关键交互**：用户注册/登录获取 JWT（httpOnly cookie）→ 自助配置竞对 → Vercel Cron 每小时触发 `/api/cron/collect` → 采集 + LLM 解读 → MySQL 存储 → 前端查询历史
 
@@ -68,7 +68,7 @@ graph TD
   USER[PM/市场人员] -->|注册/登录/配置/查阅| APP
   APP -->|HTTP 采集| WEB[竞对网站]
   APP -->|API 调用| AI[Anthropic API<br/>Claude Haiku 4.5]
-  APP -->|Prisma ORM| DB[(MySQL)]
+  APP -->|Prisma ORM| DB[(PostgreSQL)]
   GH[GitHub] -->|push 触发| VERCEL[Vercel CI/CD]
   VERCEL -->|构建部署 + Cron| APP
 ```
@@ -78,13 +78,13 @@ graph TD
 | 容器 | 职责 | 技术选型 | 运行位置 |
 |---|---|---|---|
 | Next.js App | 前端页面 + API Routes + 业务逻辑 | Next.js 15, React 19, Tailwind CSS, TypeScript | Vercel Serverless Functions |
-| MySQL 数据库 | 用户账号 + 竞对配置 + 采集快照统一存储 | MySQL 8.x，Prisma ORM | PlanetScale / 自托管 VPS |
+| PostgreSQL 数据库 | 用户账号 + 竞对配置 + 采集快照统一存储 | PostgreSQL 15，Prisma ORM | Supabase / 自托管 VPS |
 | Vercel Cron | 定时触发采集任务 | Vercel Cron Jobs（`vercel.json`），每小时执行 | Vercel 托管 |
 
 **关键数据流**：
 1. 用户注册/登录 → `POST /api/auth/register` / `POST /api/auth/login` → 返回 access_token（24h）+ refresh_token（7d，httpOnly cookie）
-2. 登录用户配置竞对 → `POST/GET/PUT/DELETE /api/competitors` → 写入 MySQL competitors 表（关联 userId）
-3. Vercel Cron 触发 → `GET /api/cron/collect`（Bearer CRON_SECRET）→ `lib/collect.ts` 汇总竞对 → 采集 HTML → diff → 有变化则调用 LLM → 写入 MySQL snapshots 表
+2. 登录用户配置竞对 → `POST/GET/PUT/DELETE /api/competitors` → 写入 PostgreSQL competitors 表（关联 userId）
+3. Vercel Cron 触发 → `GET /api/cron/collect`（Bearer CRON_SECRET）→ `lib/collect.ts` 汇总竞对 → 采集 HTML → diff → 有变化则调用 LLM → 写入 PostgreSQL snapshots 表
 4. 前端查询 → `GET /api/competitors`（按 userId 过滤）→ `GET /api/snapshots?competitor_id=...`（按 th/refresh`（公开，无需 token）
 - `GET/POST/PUT/DELETE /api/competitors`（需 JWT，middleware 注入 `x-user-id`）
 - `GET /api/snapshots`、`GET /api/snapshots/{id}`（需 JWT，middleware 注入 `x-user-id`）

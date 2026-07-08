@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "demo-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "demo", "run", "dev", "--", "--port", "5173", "--host"],
-      "port": 5173
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "vite", "--config", "demo/vite.config.js", "--host"],
+      "port": 5173,
+      "autoPort": true
     },
     {
       "name": "frontend-dev",

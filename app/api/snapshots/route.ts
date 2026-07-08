@@ -10,17 +10,17 @@ export async function GET(request: NextRequest) {
   const competitorId = searchParams.get('competitor_id');
   const limit = Math.min(Number(searchParams.get('limit') ?? '20'), 100);
 
-  if (!competitorId) {
-    return NextResponse.json({ error: 'competitor_id 必填' }, { status: 400 });
+  const where: { userId: number; competitorId?: number } = { userId };
+  if (competitorId) {
+    const competitor = await prisma.competitor.findFirst({
+      where: { id: Number(competitorId), userId },
+    });
+    if (!competitor) return NextResponse.json({ error: '未找到竞对' }, { status: 404 });
+    where.competitorId = Number(competitorId);
   }
 
-  const competitor = await prisma.competitor.findFirst({
-    where: { id: Number(competitorId), userId },
-  });
-  if (!competitor) return NextResponse.json({ error: '未找到竞对' }, { status: 404 });
-
   const snapshots = await prisma.snapshot.findMany({
-    where: { competitorId: Number(competitorId), userId },
+    where,
     orderBy: { crawledAt: 'desc' },
     take: limit,
     select: {
