@@ -12,7 +12,7 @@ version: 3.0
 - **In：** 用户注册/登录（JWT）+ 竞对 CRUD + 定时采集（Vercel Cron）+ AI 解读（Claude Haiku）+ 历史记录查看
 - **Out：** 忘记密码/邮件重置、第三方 OAuth、多角色权限、实时告警推送、社媒抓取
 
-**架构：** Next.js 15 App Router 单体（Prisma 5.x + MySQL），JWT HS256 无状态鉴权（access token 24h + refresh token 7d，httpOnly cookie），Edge middleware 拦截受保护路由，Vercel Cron Jobs 按小时触发 /api/cron/collect，axios + cheerio + Playwright fallback 采集，@anthropic-ai/sdk LLM 解读。
+**架构：** Next.js 15 App Router 单体（Prisma 5.x + **PostgreSQL**），JWT HS256 无状态鉴权（access token 24h + refresh token 7d，httpOnly cookie），Edge middleware 拦截受保护路由，Vercel Cron Jobs 按小时触发 /api/cron/collect，axios + cheerio + Playwright fallback 采集，@anthropic-ai/sdk LLM 解读。
 
 **技术栈对照：**
 
@@ -99,7 +99,7 @@ version: 3.0
 
 ### Task T6：前端页面
 
-- [ ] **状态**：未开始
+- [x] **状态**：已完成
 
 **文件：**
 - app/(auth)/login/page.tsx（登录表单）
