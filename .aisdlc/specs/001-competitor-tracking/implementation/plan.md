@@ -110,7 +110,7 @@ version: 3.0
 
 ### Task T7：收尾与验证
 
-- [ ] **状态**：未开始
+- [x] **状态**：已完成
 
 **步骤：**
 1. 更新 .gitignore（排除 node_modules、.next、.env.local）
