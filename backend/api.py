@@ -1,125 +1,155 @@
 import os
-from datetime import datetime, timezone
-
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+from sqlalchemy.orm import Session
 
-from auth import create_access_token, get_current_user, hash_password, verify_password
-from database import get_conn
-from storage import get_record_by_id, get_records
-
-app = FastAPI(title="竞品监控 API")
+from database import get_db, User, init_db
+from auth import (
+    hash_password, verify_password,
+    create_access_token, create_refresh_token,
+    decode_refresh_token, get_current_user,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+)
 
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
+app = FastAPI(title="竞对监控 API")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=[o.strip() for o in ALLOWED_ORIGINS],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ── 认证路由 ──────────────────────────────────────────────
+# ---------- Schemas ----------
 
 class RegisterIn(BaseModel):
-    username: str
-    email: str
+    email: EmailStr
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("密码至少 8 位")
+        if len(v) > 72:
+            raise ValueError("密码不得超过 72 位")
+        return v
 
 
 class LoginIn(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 
-@app.post("/auth/register", status_code=201)
-def register(body: RegisterIn):
-    now = datetime.now(timezone.utc).isoformat()
-    try:
-        with get_conn() as conn:
-            cur = conn.execute(
-                "INSERT INTO users (username, email, password_hash, created_at) VALUES (?,?,?,?)",
-                (body.username, body.email, hash_password(body.password), now),
-            )
-            user_id = cur.lastrowid
-    except Exception:
-        raise HTTPException(status_code=409, detail="用户名或邮箱已存在")
-    return {"id": user_id, "username": body.username, "email": body.email}
+class TokenOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
 
 
-@app.post("/auth/login")
-def login(body: LoginIn):
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (body.email,)).fetchone()
-    if row is None or not verify_password(body.password, row["password_hash"]):
+class RefreshIn(BaseModel):
+    refresh_token: str
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    username: str
+
+    model_config = {"from_attributes": True}
+
+
+# ---------- Auth routes ----------
+
+@app.post("/auth/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def register(body: RegisterIn, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == body.email).first():
+        raise HTTPException(status_code=409, detail="邮箱已注册")
+    user = User(
+        email=body.email,
+        username=body.email.split("@")[0],
+        password_hash=hash_password(body.password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.post("/auth/login", response_model=TokenOut)
+def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == body.email).first()
+    if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
-    token = create_access_token(row["id"], row["username"])
-    return {"access_token": token, "token_type": "bearer"}
+
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
+
+    # httpOnly cookie（生产环境需 secure=True + samesite="none"）
+    is_prod = os.getenv("ENV", "development") == "production"
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=24 * 3600,
+        samesite="none" if is_prod else "lax",
+        secure=is_prod,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        samesite="none" if is_prod else "lax",
+        secure=is_prod,
+    )
+    return TokenOut(access_token=access_token, refresh_token=refresh_token)
 
 
-# ── 网站管理路由 ──────────────────────────────────────────
+@app.post("/auth/refresh", response_model=TokenOut)
+def refresh(body: RefreshIn, response: Response, db: Session = Depends(get_db)):
+    user_id = decode_refresh_token(body.refresh_token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="refresh token 无效或已过期")
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="用户不存在")
 
-class WebsiteIn(BaseModel):
-    url: str
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
 
-
-@app.get("/api/websites")
-def list_websites(current_user: dict = Depends(get_current_user)):
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM websites ORDER BY created_at DESC").fetchall()
-    return {"websites": [dict(r) for r in rows]}
-
-
-@app.post("/api/websites", status_code=201)
-def add_website(body: WebsiteIn, current_user: dict = Depends(get_current_user)):
-    from scheduler import add_website_job
-
-    url = body.url.strip().rstrip("/")
-    now = datetime.now(timezone.utc).isoformat()
-    try:
-        with get_conn() as conn:
-            cur = conn.execute(
-                "INSERT INTO websites (url, name, added_by, created_at) VALUES (?,?,?,?)",
-                (url, None, current_user["id"], now),
-            )
-            website_id = cur.lastrowid
-    except Exception:
-        raise HTTPException(status_code=409, detail="该网站已在监控列表中")
-
-    add_website_job(url)
-    return {"id": website_id, "url": url, "name": None, "created_at": now}
-
-
-@app.delete("/api/websites/{website_id}", status_code=204)
-def delete_website(website_id: int, current_user: dict = Depends(get_current_user)):
-    from scheduler import remove_website_job
-
-    with get_conn() as conn:
-        row = conn.execute("SELECT url FROM websites WHERE id = ?", (website_id,)).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="网站不存在")
-        conn.execute("DELETE FROM websites WHERE id = ?", (website_id,))
-
-    remove_website_job(row["url"])
+    is_prod = os.getenv("ENV", "development") == "production"
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=24 * 3600,
+        samesite="none" if is_prod else "lax",
+        secure=is_prod,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        samesite="none" if is_prod else "lax",
+        secure=is_prod,
+    )
+    return TokenOut(access_token=access_token, refresh_token=refresh_token)
 
 
-# ── 快照查询路由 ──────────────────────────────────────────
-
-@app.get("/api/snapshots")
-def list_snapshots(
-    url: str,
-    limit: int = 20,
-    current_user: dict = Depends(get_current_user),
-):
-    items = get_records(url, limit=limit)
-    return {"items": items, "total": len(items)}
+@app.post("/auth/logout")
+def logout(response: Response):
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+    return {"detail": "已登出"}
 
 
-@app.get("/api/snapshots/{record_id}")
-def get_snapshot(record_id: str, current_user: dict = Depends(get_current_user)):
-    record = get_record_by_id(record_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="记录不存在")
-    return record
+@app.get("/auth/me", response_model=UserOut)
+def me(current_user: User = Depends(get_current_user)):
+    return current_user
