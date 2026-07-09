@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(Write-Host \"===== 3. build =====\"; npm run build 2>&1 | Select-Object -Last 8; Write-Host \"---build exit: $LASTEXITCODE---\")"
+      "PowerShell(Write-Host \"===== 3. build =====\"; npm run build 2>&1 | Select-Object -Last 8; Write-Host \"---build exit: $LASTEXITCODE---\")",
+      "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\Administrator\\\\.claude\\\\skills\\\\spec-context\\\\scripts\\\\spec-common.ps1\" -SkillName \"spec-plan\")",
+      "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\Administrator\\\\.claude\\\\skills\\\\spec-context\\\\scripts\\\\spec-common.ps1\" -SkillName \"spec-test-plan\")"
     ]
   }
 }

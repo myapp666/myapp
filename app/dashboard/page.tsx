@@ -127,9 +127,6 @@ export default function DashboardPage() {
   );
   const [importanceHydrated, setImportanceHydrated] = useState(false);
 
-  // "只看未读" 切换（默认关）
-  const [unreadOnly, setUnreadOnly] = useState<boolean>(false);
-
   // 用来强制重新拉取列表（执行批量操作后用）
   const [refreshKey, setRefreshKey] = useState(0);
   const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -192,7 +189,6 @@ export default function DashboardPage() {
         const params = new URLSearchParams();
         params.set('limit', '100');
         params.set('archived', ARCHIVE_VIEW_PARAMS[archiveView]);
-        if (unreadOnly) params.set('read', 'false');
         if (selectedCompetitorId !== 'all') {
           params.set('competitor_id', selectedCompetitorId);
         }
@@ -209,7 +205,7 @@ export default function DashboardPage() {
       }
     };
     load();
-  }, [selectedCompetitorId, archiveView, unreadOnly, refreshKey]);
+  }, [selectedCompetitorId, archiveView, refreshKey]);
 
   // 从 localStorage 恢复用户上次选中的重要度（仅客户端，避免 SSR hydration 不匹配）
   useEffect(() => {
@@ -372,12 +368,6 @@ export default function DashboardPage() {
     }
   };
 
-  // 未读计数（用于"只看未读"toggle 上的 badge）
-  const unreadCount = useMemo(
-    () => recent.filter((s) => !s.readAt).length,
-    [recent],
-  );
-
   return (
     <div className="space-y-8">
       <div>
@@ -492,60 +482,6 @@ export default function DashboardPage() {
           >
             重置
           </button>
-          {/* 只看未读 toggle - 单独一栏，避免视觉挤在一起 */}
-        </div>
-
-        {/* 只看未读 toggle */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setUnreadOnly((v) => !v)}
-            aria-pressed={unreadOnly}
-            className={`inline-flex items-center gap-2 px-3 py-1 text-xs rounded-full border transition ${
-              unreadOnly
-                ? 'bg-blue-50 text-blue-700 border-blue-300'
-                : 'bg-white text-slate-500 border-slate-200 hover:border-blue-200'
-            }`}
-          >
-            <span
-              className={`inline-block w-2 h-2 rounded-full ${
-                unreadOnly ? 'bg-blue-500' : 'bg-slate-300'
-              }`}
-            />
-            只看未读
-            <span className="opacity-70">({unreadCount})</span>
-          </button>
-          {unreadOnly && (
-            <button
-              type="button"
-              onClick={async () => {
-                if (recent.length === 0) return;
-                const ids = recent.filter((s) => !s.readAt).map((s) => s.id);
-                if (ids.length === 0) return;
-                if (!confirm(`将当前视图下 ${ids.length} 条未读全部标为已读，继续？`)) return;
-                setBulkBusy(true);
-                try {
-                  const res = await fetch('/api/snapshots/read', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ids, read: true }),
-                  });
-                  if (!res.ok) {
-                    const data = await res.json().catch(() => ({}));
-                    alert(`操作失败：${data.error ?? res.statusText}`);
-                    return;
-                  }
-                  triggerRefresh();
-                } finally {
-                  setBulkBusy(false);
-                }
-              }}
-              disabled={bulkBusy || unreadCount === 0}
-              className="px-3 py-1 text-xs text-blue-700 hover:underline disabled:opacity-50"
-            >
-              全部标为已读
-            </button>
-          )}
         </div>
 
         {/* 批量操作工具条（仅当选中至少 1 项时显示） */}
@@ -657,9 +593,7 @@ export default function DashboardPage() {
                   className={`flex items-stretch gap-3 bg-white p-4 rounded-lg border transition ${
                     isArchived
                       ? 'border-slate-200 bg-slate-50/60'
-                      : isUnread
-                        ? 'border-slate-200 border-l-4 border-l-blue-400 hover:shadow-md hover:border-blue-300'
-                        : 'border-slate-200 hover:shadow-md hover:border-blue-300'
+                      : 'border-slate-200 hover:shadow-md hover:border-blue-300'
                   }`}
                 >
                   <div className="flex items-center pt-1">
@@ -703,7 +637,7 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </div>
-                        <div className={`mt-1 ${isUnread ? 'font-semibold text-slate-900' : 'font-medium text-slate-900'}`}>
+                        <div className={`mt-1 font-medium text-slate-900`}>
                           {s.changeType || '未分类'}
                         </div>
                         <div className="text-sm text-slate-600 mt-1 line-clamp-2">
@@ -786,12 +720,6 @@ export default function DashboardPage() {
                         {comp && (
                           <span className="font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs">
                             {comp}
-                          </span>
-                        )}
-                        {isUnread && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                            未读
                           </span>
                         )}
                         {isArchived && (
