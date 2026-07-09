@@ -2,6 +2,7 @@ import { prisma } from './db';
 import { fetchHtml, diffHtml } from './scraper';
 import { analyzeChange, type ChangeAnalysis } from './llm';
 import { sendChangeNotification } from './mailer';
+import { ensureMarkdown, htmlToMarkdown } from './markdown';
 
 // 取该 URL 组（全部监控此 URL 的 competitor）最近一次抓到的 HTML 作为统一 oldHtml。
 // 目的：N 用户同 URL → 永远共用同一份 diff 基线 → AI 调用次数 = unique_url 数（确定的 1:1）。
@@ -76,8 +77,12 @@ async function collectByUrl(websiteUrl: string, competitorIds: number[]): Promis
     return;
   }
 
-  // 3. diff 1 次
-  const diff = diffHtml(oldHtml, newHtml);
+  // 3. 转 markdown 后 diff 1 次
+  // 喂给 LLM 的是 markdown 而不是 HTML：体积小、语义清、LLM 更容易识别真实变化
+  // 老数据兼容：DB 里如果存的是旧版 HTML（looksLikeHtml 命中），自动转一次
+  const oldMarkdown = ensureMarkdown(oldHtml);
+  const newMarkdown = htmlToMarkdown(newHtml);
+  const diff = diffHtml(oldMarkdown, newMarkdown);
   if (!diff) {
     console.debug(`无变化 url=${websiteUrl}`);
     return;
