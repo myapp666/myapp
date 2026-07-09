@@ -1,8 +1,9 @@
 ---
 title: 002-html-md-analysis 测试计划（Test Plan）
 status: ready
-version: v1.0
+version: v1.1
 date: 2026-07-09
+reviewed_at: 2026-07-09  # v1.1 全面复核：实测重跑 17/17 PASS + tsc 0；发现并登记 AC-5/V-002 口径漂移（见 §8.1 / §9 R8 / 附录 B）
 ---
 
 # 测试计划（Test Plan）— 002-html-md-analysis
@@ -15,7 +16,7 @@ date: 2026-07-09
 ## 1. 基本信息
 
 - **Spec / Feature**：`002-html-md-analysis`（FEATURE_DIR = `.aisdlc/specs/002-html-md-analysis`）
-- **版本/构建**：`v1.0`（commit `676ddf7` 实现 + `1c86b42` 测试）
+- **版本/构建**：`v1.1`（v1.0 首版冻结 → v1.1 全面复核）；实现 commit `676ddf7` + 测试 commit `1c86b42`（`git log --all` 可达，工作区 `lib/html.ts` / `scripts/test-html.mts` 已提交无改动）
 - **环境**：Dev（仓库根，单机 Node v24.18.0）；生产部署环境 Vercel（仅作部署兼容回归）
 - **测试负责人**：DEV（单测执行）+ Spec 作者（验收口径确认）
 - **计划日期**：2026-07-09
@@ -33,7 +34,9 @@ date: 2026-07-09
   3. 超长 MD（>15000 字符）触发模型上下文超限，需截断生效且不破坏 JSON 输出（V-003）
   4. 新模块与 `lib/llm.ts` 的 prompt/extractJson/兜底风格分叉（V-006）
   5. 项目知识库 4 项文件缺失，影响后续 Discover/Impact Analysis 质量（V-005）
+  6. **（v1.1 复核新增）需求口径缺陷**：solution.md §8 AC-5 与 §5 V-002 信号把兜底写成 `content_type=""` / `importance=""`，但 `HtmlAnalysis` 的类型联合不含 `""`（该值 tsc 非法）；as-built 实现用 `content_type="其他"` / `importance="低"` 才类型合法。实现正确，需求文本待订正（见 §8.1 / §9 R8）
 - **结论门槛（预告）**：见 §8 准出标准 —— P0 用例 + smoke 全过、无 Critical/P0 阻断缺陷、9 条 AC + 6 项 V 验证全部覆盖。
+- **v1.1 复核实测证据（2026-07-09 重跑）**：`node --experimental-strip-types scripts/test-html.mts` → `PASS: 17 / FAIL: 0`，退出码 0；`npx tsc --noEmit` 退出码 0。口径以 as-built 为准。
 
 ---
 
@@ -165,6 +168,7 @@ date: 2026-07-09
 ### 8.1 通过（Pass / Go）
 
 - [x] 所有 P0 用例通过：9 条 AC 全部满足（T2 验证 17/17 PASS 覆盖 AC-1~AC-7；AC-8/AC-9 由 `npx tsc --noEmit` + `package.json` 检查覆盖）
+  - **（v1.1 复核）AC-5/AC-6 以 as-built 口径为准**：`analyzeHtml` 兜底为 `content_type="其他"` / `importance="低"`，`summary=""`（缺字段）或 `"[AI 解读失败, 原因: ...]"`（异常）。solution.md §8 AC-5 / §5 V-002 里写的 `content_type=""` / `importance=""` 与 `HtmlAnalysis` 类型联合冲突（`""` 非法），已登记为 R8 待订正需求文本；测试脚本断言的 `其他`/`低` 为正确期望值，17/17 PASS 有效。
 - [x] smoke 套件通过：`scripts/test-html.mts` 退出码 0（AC-1/2/3 + 编译检查）
 - [x] 无阻断缺陷（Critical/P0）：T2 期间发现 2 个 bug 已当场修复并回归通过（turndown setext→atx；mock server body 捕获）
 - [x] 关键风险验证动作完成且无未闭环阻断项：V-001~V-006 全部有覆盖（V-001~V-003 由 17 条断言覆盖；V-004 由类型签名覆盖；V-006 由 T4 CR 通过；V-005 在 merge-back 阶段处理，登记为 MB-001）
@@ -197,6 +201,8 @@ date: 2026-07-09
 | R5（V-005）项目知识库 4 项文件缺失，影响 Discover/Impact Analysis | 高 | 中（不阻断本次交付，但影响后续 Spec Pack） | 在 `implementation/plan.md §Merge-back` 登记 MB-001 | Spec 作者 / Maintainer | Merge-back 阶段 | MB-001 已登记；触发 `project-discover-modules-contracts` 补齐 `components/lib.md` |
 | R6 `npm run lint` 因项目预存状态跳过 | 中 | 低（不阻断构建，但缺少静态检查） | T3 跳过理由显式登记；后续 Spec Pack 独立处理 | DEV | 后续 Spec Pack | T3 验证记录已说明：Next.js 16 `next lint` deprecated + 无 ESLint 配置 |
 | R7 `package.json` 因 `npm install` hash 变化产生非预期 diff | 低 | 低（lock 漂移，code review 可见） | 对比 `git diff package-lock.json` 与预期 turndown hash | DEV | T1 commit 阶段 | 已确认 turndown 已声明，本次未触发 lock 变更（T1 commit `676ddf7` 仅含 `lib/html.ts`） |
+| R8（v1.1 复核新增）需求文本 AC-5/V-002 信号写 `content_type=""`/`importance=""`，与 `HtmlAnalysis` 类型联合冲突（`""` 非法） | 中 | 中（口径错误会误导 usecase/suites 断言，且真按 `""` 断言会 tsc 失败） | 复核 `lib/html.ts:135-146` 兜底 = `其他`/`低`；对照测试脚本断言 | Spec 作者 / DEV | 下个回写窗口 | as-built 口径正确（`其他`/`低`）；**动作**：订正 solution.md §8 AC-5 与 §5 V-002 信号为 `其他`/`低`，或标注被本 test-plan §8.1 as-built 口径取代（不阻断本次交付，实现无需改） |
+| R9（v1.1 复核）实测口径是否仍为真（防文档漂移） | 低 | 中 | 重跑 `scripts/test-html.mts` + `tsc --noEmit` | DEV | 2026-07-09（v1.1 复核） | ✅ 已重跑：`PASS: 17 / FAIL: 0` 退出码 0；`tsc --noEmit` 退出码 0；commit `676ddf7`/`1c86b42` 可达 |
 
 ---
 
@@ -247,8 +253,11 @@ date: 2026-07-09
 
 **结论**：本测试计划准入条件已全部满足，可进入 `spec-test-usecase` / `spec-test-suites` / `spec-test-execute` 阶段；用例与套件生成可基于本计划的范围/策略/AC-1~AC-9/V-001~V-006 直接展开。
 
+**v1.1 复核补充（2026-07-09）**：重跑实测证据仍为真（`scripts/test-html.mts` 17/17 PASS、`tsc --noEmit` 退出码 0、commit `676ddf7`/`1c86b42` 可达、工作区无改动）。复核发现 1 项需求口径缺陷（R8：solution.md AC-5/V-002 的 `""` 兜底类型非法），as-built 口径 `其他`/`低` 为准；下游 `spec-test-usecase` 生成 AC-5/AC-6 用例时**必须**用 `content_type="其他"` / `importance="低"` 作为期望值，不得照抄 solution.md 的 `""`。
+
 ---
 
 ## 附录 B：迭代记录
 
 - 2026-07-09 v1.0（首版）：基于已完成的 I2（T0~T4 全部 ✅）产出测试计划；冻结 9 条 AC + 6 项 V-xxx + 7 条风险（R1~R7）的口径；显式登记 4 项项目知识库 Context Gap 与 1 项 Mini-PRD 替代 prd.md 的合理 Context Gap。
+- 2026-07-09 v1.1（全面复核）：重跑实测（`scripts/test-html.mts` 17/17 PASS、`tsc --noEmit` 退出码 0、commit `676ddf7`/`1c86b42` 可达、工作区无改动）；新增 R8（solution.md AC-5/§5 V-002 兜底写成 `content_type=""`/`importance=""`，与 `HtmlAnalysis` 类型联合冲突，as-built 应为 `其他`/`低`）与 R9（防文档漂移的复核动作）；在 §2 / §8.1 / 附录 A 显式登记 as-built 口径优先，并要求下游 usecase 用 `其他`/`低` 作为 AC-5/AC-6 期望值。**结论：DoD 全部满足，无阻断项；R8 为需求文本订正待办，不阻断本次交付，实现无需改。**
