@@ -116,7 +116,8 @@ status: reviewing
 - **V-002 AI 调用异常与字段缺失兜底**
   - 风险/假设：网络错误 / SDK 抛错 / 模型超时 / 模型未输出 JSON / JSON 缺字段 时，模块行为是否符合预期
   - 方法：单测用 mock Anthropic SDK 模拟 5 类异常（throw / 超时 / 文本非 JSON / JSON 缺 content_type / JSON 缺 summary），断言返回的 `HtmlAnalysis` 字段值
-  - 成功/失败信号：5 类异常均返回合法 `HtmlAnalysis` 对象（`content_type=""` / `summary="[AI 解读失败, 原因: ...]"` / `importance=""`），不向调用方抛错
+  - 成功/失败信号：5 类异常均返回合法 `HtmlAnalysis` 对象（`content_type="其他"` / `summary="[AI 解读失败, 原因: ...]"` / `importance="低"`），不向调用方抛错
+    - 注（2026-07-09 订正）：兜底枚举原误写为 `""`，但 `content_type` / `importance` 的类型联合不含 `""`（会 tsc 非法），已订正为类型合法的 `其他` / `低`，与 as-built `lib/html.ts:141-145` 一致（见 verification/test-plan.md R8）
   - Owner：DEV
   - 截止：实现完成后 1 天内
   - 触发动作：不成立则补 try/catch 并保证缺字段兜底与 `lib/llm.ts` 一致
@@ -157,6 +158,7 @@ status: reviewing
 
 - 2026-07-09 v1.0（首版）：完成 5 轮澄清收敛；确定 turndown + Anthropic SDK + 三字段 JSON 方案；明确跳过 prd.md/prototype.md，附 Mini-PRD；登记 4 项项目知识库 Context Gap 与 6 项验证清单。
 - 2026-07-09 v1.0（备注）：澄清过程中已锁定本轮全部决策，无 v0.x 中间版本。
+- 2026-07-09 v1.1（口径订正）：verification 阶段（test-plan v1.1 R8）发现 §5 V-002 信号与 §8 AC-5 把兜底枚举误写为 `content_type=""` / `importance=""`，与 `HtmlAnalysis` 类型联合冲突（`""` 非法）。已订正为类型合法的 `其他` / `低`，与 as-built `lib/html.ts:141-145` 及 `scripts/test-html.mts` 断言一致。实现与测试无需改动，仅需求文本订正。
 
 ## 7. Impact Analysis（需求影响分析）
 
@@ -221,7 +223,7 @@ status: reviewing
 - AC-2：`cleanHtmlToMarkdown("")` 返回 `""`，不抛异常
 - AC-3：`cleanHtmlToMarkdown("纯文本无标签")` 返回 `"纯文本无标签"`，不抛异常
 - AC-4：`analyzeHtml` 在 Anthropic SDK mock 返回合法 JSON 时，返回字段完全匹配的 `HtmlAnalysis`
-- AC-5：`analyzeHtml` 在 Anthropic SDK mock 抛错时，返回 `{ content_type: "", summary: "[AI 解读失败, 原因: ...]", importance: "" }`，不向调用方抛错
+- AC-5：`analyzeHtml` 在 Anthropic SDK mock 抛错时，返回 `{ content_type: "其他", summary: "[AI 解读失败, 原因: ...]", importance: "低" }`，不向调用方抛错（2026-07-09 订正：原误写 `content_type: ""` / `importance: ""`，与 `HtmlAnalysis` 类型联合冲突，已订正为类型合法的 `其他` / `低`；见 verification/test-plan.md R8）
 - AC-6：`analyzeHtml` 在 mock 返回缺 `summary` 字段的 JSON 时，返回 `summary=""` 兜底，其他字段正常填充
 - AC-7：`analyzeHtml` 在输入 MD > 15000 字符时，截断到 15000 并追加截断提示，正常返回 `HtmlAnalysis`
 - AC-8：所有公开函数 TypeScript 严格模式编译通过，无 `any` 泄漏
