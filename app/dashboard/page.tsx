@@ -1,14 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import {
-  ImportanceFilter,
-  IMPORTANCE_LEVELS,
-  matchesImportanceFilter,
-  useImportanceFilter,
-  type Importance,
-} from './_components/ImportanceFilter';
 
 interface User {
   id: number;
@@ -40,7 +33,6 @@ export default function DashboardPage() {
   const [recent, setRecent] = useState<Snapshot[]>([]);
   const [monitorInterval, setMonitorInterval] = useState<number>(60);
   const [loading, setLoading] = useState(true);
-  const [importanceFilter, setImportanceFilter] = useImportanceFilter();
 
   useEffect(() => {
     const load = async () => {
@@ -101,25 +93,6 @@ export default function DashboardPage() {
 
   const competitorNameById = new Map(competitors.map((c) => [c.id, c.name]));
 
-  // 当前 dataset 内的重要度计数（用于药丸上的数字角标）
-  const importanceCounts = useMemo(() => {
-    const counts: Partial<Record<Importance, number>> = {};
-    for (const s of recent) {
-      const imp = s.importance;
-      if (imp && (IMPORTANCE_LEVELS as readonly string[]).includes(imp)) {
-        const k = imp as Importance;
-        counts[k] = (counts[k] ?? 0) + 1;
-      }
-    }
-    return counts;
-  }, [recent]);
-
-  // 客户端筛选：null/未知 重要度一律保留显示
-  const filteredRecent = useMemo(
-    () => recent.filter((s) => matchesImportanceFilter(s.importance, importanceFilter)),
-    [recent, importanceFilter],
-  );
-
   return (
     <div className="space-y-8">
       <div>
@@ -138,12 +111,8 @@ export default function DashboardPage() {
         </div>
         <div className="bg-white p-5 rounded-lg border border-slate-200">
           <div className="text-sm text-slate-500">最近记录</div>
-          <div className="text-3xl font-bold text-slate-900 mt-1">{filteredRecent.length}</div>
-          <div className="text-xs text-slate-400 mt-2">
-            当前筛选下的记录数{recent.length !== filteredRecent.length && (
-              <span className="text-slate-400">（共 {recent.length} 条）</span>
-            )}
-          </div>
+          <div className="text-3xl font-bold text-slate-900 mt-1">{recent.length}</div>
+          <div className="text-xs text-slate-400 mt-2">当前筛选下的全部记录</div>
         </div>
         <div className="bg-white p-5 rounded-lg border border-slate-200">
           <div className="text-sm text-slate-500">采集频率</div>
@@ -160,10 +129,7 @@ export default function DashboardPage() {
             <p className="text-xs text-slate-500 mt-1">
               当前筛选：<span className="font-medium text-slate-700">{selectedName}</span>
               {' · '}
-              <span>
-                显示 <span className="font-medium text-slate-700">{filteredRecent.length}</span> /{' '}
-                {recent.length} 条
-              </span>
+              <span>共 <span className="font-medium text-slate-700">{recent.length}</span> 条</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -186,15 +152,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 重要度筛选器（独立一行，便于在移动端自然换行） */}
-        <div className="bg-white px-4 py-3 rounded-lg border border-slate-200">
-          <ImportanceFilter
-            value={importanceFilter}
-            onChange={setImportanceFilter}
-            counts={importanceCounts}
-          />
-        </div>
-
         {loading ? (
           <div className="bg-white p-8 rounded-lg border border-slate-200 text-center text-slate-500 text-sm">
             加载中...
@@ -210,20 +167,9 @@ export default function DashboardPage() {
               </Link>
             )}
           </div>
-        ) : filteredRecent.length === 0 ? (
-          <div className="bg-white p-8 rounded-lg border border-slate-200 text-center text-slate-500 text-sm">
-            当前重要度筛选下没有匹配的记录。
-            <button
-              type="button"
-              onClick={() => setImportanceFilter(new Set(IMPORTANCE_LEVELS))}
-              className="text-blue-600 hover:underline ml-1"
-            >
-              显示全部重要度
-            </button>
-          </div>
         ) : (
           <div className="space-y-2">
-            {filteredRecent.map((s) => (
+            {recent.map((s) => (
               <Link
                 key={s.id}
                 href={`/dashboard/snapshots/${s.competitorId}/${s.id}`}
@@ -249,7 +195,7 @@ export default function DashboardPage() {
                   {s.importance && (
                     <span
                       className={`ml-3 px-3 py-1 text-xs rounded-full whitespace-nowrap ${importanceColor(
-                        s.importance,
+                        s.importance
                       )}`}
                     >
                       {s.importance}
