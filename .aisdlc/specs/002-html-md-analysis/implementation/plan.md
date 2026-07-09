@@ -1,6 +1,11 @@
 ---
 title: 002-html-md-analysis 实现计划（SSOT）
-status: draft
+status: executed
+last_executed_at: 2026-07-09
+last_commits:
+  - 676ddf7  # T1: feat(lib): 新增 lib/html.ts
+  - 1c86b42  # T2: feat(lib): headingStyle=atx + scripts/test-html.mts
+note: I2 已完成；本文件保留作为已完成 Spec Pack 的 SSOT 与历史审计依据；执行快照见文末「I2 完成总结」表
 ---
 
 # 002-html-md-analysis 实现计划（SSOT）
