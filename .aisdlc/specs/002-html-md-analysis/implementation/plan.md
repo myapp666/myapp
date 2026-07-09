@@ -124,7 +124,7 @@ status: draft
 
 ### Task T0: 环境与依赖验证（防呆）
 
-- [ ] **状态**：未开始
+- [x] **状态**：完成（2026-07-09）
 
 **代码仓范围：**
 - 根项目：
@@ -157,11 +157,17 @@ status: draft
     pr: N/A
     changed_files: （无）
 
+**T0 实际验证结果（2026-07-09 执行）**：
+- Node v24.18.0 ✅
+- turndown 在 `package.json` ✅
+- @types/turndown 在 `package.json` ✅
+- `lib/html.ts` 不存在（可新建）✅
+
 ---
 
 ### Task T1: 实现 `lib/html.ts`
 
-- [ ] **状态**：未开始
+- [x] **状态**：完成（2026-07-09）
 
 **代码仓范围：**
 - 根项目：
@@ -195,16 +201,21 @@ status: draft
 - 审计信息：
   - repo: `root`
     branch: `002-html-md-analysis`
-    commit: `<TBD>`
+    commit: `676ddf7`
     pr: `<TBD>`
     changed_files:
       - `lib/html.ts`
+
+**T1 实际验证结果（2026-07-09 执行）**：
+- `npx tsc --noEmit` 退出码 0，无 TS 错误 ✅
+- IDE 误报 `Cannot find name 'process'`（实际 `@types/node` 已就位，IDE 缓存延迟）
+- 实施细节：`TurndownService({ headingStyle: 'atx' })` 让 `<h1>` 转为 `# Hello` 而非 `Hello\n=====`（与 solution.md AC-1 一致）
 
 ---
 
 ### Task T2: 写 `scripts/test-html.mts` 单测脚本
 
-- [ ] **状态**：未开始
+- [x] **状态**：完成（2026-07-09）
 
 **代码仓范围：**
 - 根项目：
@@ -241,10 +252,19 @@ status: draft
 - 审计信息：
   - repo: `root`
     branch: `002-html-md-analysis`
-    commit: `<TBD>`
+    commit: `1c86b42`
     pr: `<TBD>`
     changed_files:
+      - `lib/html.ts`（增量：turndown headingStyle=atx）
       - `scripts/test-html.mts`
+
+**T2 实际验证结果（2026-07-09 执行）**：
+- `node --experimental-strip-types scripts/test-html.mts` 输出 `PASS: 17 / FAIL: 0`，退出码 0 ✅
+- 17 条断言全部通过，覆盖 AC-1~AC-7 + 7 类异常输入
+- 测试期间发现 2 个 bug 并当场修复：
+  1. turndown 默认 h1 用 setext 风格 → AC-1 期望 ATX → 加 `headingStyle: 'atx'`
+  2. AC-7 切第二个 server 失败（Anthropic client 已在模块加载时绑定）→ 改为主 server 内捕获 body
+- 良性警告：MODULE_TYPELESS_PACKAGE_JSON（Node 检测到 ES module 语法；不动 `"type": "module"` 因为会破坏 Next.js 构建）
 
 ---
 
