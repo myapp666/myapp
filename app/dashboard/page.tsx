@@ -388,35 +388,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900">欢迎回来，{user?.username || user?.email}</h2>
-        <p className="text-sm text-slate-500 mt-1">这里是竞争情报监控的总览</p>
-      </div>
-
-      {/* 数据概览 */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-lg border border-slate-200">
-          <div className="text-sm text-slate-500">监控竞对</div>
-          <div className="text-3xl font-bold text-slate-900 mt-1">{competitors.length}</div>
-          <Link href="/dashboard/competitors" className="text-xs text-blue-600 hover:underline mt-2 inline-block">
-            管理竞对 →
-          </Link>
-        </div>
-        <div className="bg-white p-5 rounded-lg border border-slate-200">
-          <div className="text-sm text-slate-500">当前视图</div>
-          <div className="text-3xl font-bold text-slate-900 mt-1">{recent.length}</div>
-          <div className="text-xs text-slate-400 mt-2">
-            {archiveView === 'active' ? '未归档条目' : archiveView === 'archived' ? '已归档条目' : '全部条目'}
-          </div>
-        </div>
-        <div className="bg-white p-5 rounded-lg border border-slate-200">
-          <div className="text-sm text-slate-500">采集频率</div>
-          <div className="text-3xl font-bold text-slate-900 mt-1">{monitorInterval} min</div>
-          <div className="text-xs text-slate-400 mt-2">来自 .env MONITOR_INTERVAL</div>
-        </div>
-      </div>
-
-      {/* 展开选择 + 近期变化 */}
+      {/* 情报收集箱 */}
       <div className="space-y-4">
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
