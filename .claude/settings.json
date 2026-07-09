@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Write-Host \"===== 3. build =====\"; npm run build 2>&1 | Select-Object -Last 8; Write-Host \"---build exit: $LASTEXITCODE---\")"
+    ]
+  }
+}
