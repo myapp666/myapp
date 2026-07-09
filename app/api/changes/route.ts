@@ -13,7 +13,6 @@ import { extractChangeContent, extractIntentAnalysis } from '@/lib/summary';
 //       competitorName:     竞品名,
 //       changeContent:      变化的前后内容（AI summary 的【变更】段）,
 //       intentAnalysis:     意图分析结果（【意图】+【行动】+【理由】三段拼接）,
-//       crawledAt:          ISO 时间戳
 //     }
 //   ]
 // 说明：
@@ -40,7 +39,6 @@ interface ChangeEntry {
   competitorName: string;
   changeContent: string;
   intentAnalysis: string;
-  crawledAt: string;
 }
 
 export async function GET(request: NextRequest) {
@@ -89,7 +87,6 @@ export async function GET(request: NextRequest) {
       competitorName: c?.name ?? '',
       changeContent: extractChangeContent(s.summary),
       intentAnalysis: extractIntentAnalysis(s.summary),
-      crawledAt: s.crawledAt.toISOString(),
     });
     if (result.length >= limit) break;
   }
