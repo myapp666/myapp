@@ -33,7 +33,6 @@ function dedupeKey(url: string, crawledAt: Date): string {
 
 interface ChangeEntry {
   id: number;
-  competitorName: string | null;
   competitorUrl: string | null;
   competitorCount: number;
   changeType: string | null;
@@ -56,7 +55,7 @@ export async function GET(request: NextRequest) {
         { websiteUrl: `${targetUrl}/` },
       ],
     },
-    select: { id: true, name: true, websiteUrl: true },
+    select: { id: true, websiteUrl: true },
   });
 
   if (competitors.length === 0) {
@@ -102,7 +101,6 @@ export async function GET(request: NextRequest) {
     seen.add(key);
     result.push({
       id: s.id,
-      competitorName: c?.name ?? null,
       competitorUrl: c?.websiteUrl ?? null,
       competitorCount: counts.get(key) ?? 1,
       changeType: s.changeType ?? null,
