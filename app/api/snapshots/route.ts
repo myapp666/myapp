@@ -14,11 +14,7 @@ function parseArchivedFilter(raw: string | null): Prisma.DateTimeNullableFilter<
   return { equals: null }; // 缺省 + 其它值：仅未归档
 }
 
-// read query 取值同 archived：
-//   缺省 → 全部（不限，因为 dashboard 自己用本地状态管"未读"切换）
-//   "true"  → 只返回已读
-//   "false" → 只返回未读
-//   "all"   → 全部
+// read query 取值同 archived。
 function parseReadFilter(raw: string | null): Prisma.DateTimeNullableFilter<'Snapshot'> | undefined {
   const v = (raw ?? '').toLowerCase();
   if (['', 'all', '*'].includes(v)) return undefined;
@@ -35,7 +31,11 @@ export async function GET(request: NextRequest) {
   const competitorId = searchParams.get('competitor_id');
   const archivedRaw = searchParams.get('archived');
   const readRaw = searchParams.get('read');
-  const limit = Math.min(Number(searchParams.get('limit') ?? '20'), 100);
+
+  // 分页：page 1-indexed；pageSize 默认 100，最大 200（防止大表 OOM）
+  const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
+  const pageSize = Math.min(Math.max(1, Number(searchParams.get('pageSize') ?? '100') || 100), 200);
+  const skip = (page - 1) * pageSize;
 
   const where: Prisma.SnapshotWhereInput = { userId };
   if (competitorId) {
@@ -54,21 +54,33 @@ export async function GET(request: NextRequest) {
     where.readAt = readClause;
   }
 
-  const snapshots = await prisma.snapshot.findMany({
-    where,
-    orderBy: { crawledAt: 'desc' },
-    take: limit,
-    select: {
-      id: true,
-      competitorId: true,
-      crawledAt: true,
-      changeType: true,
-      summary: true,
-      importance: true,
-      archivedAt: true,
-      readAt: true,
+  // 用 Promise.all 并发跑：分页数据 + 总数
+  const [total, snapshots] = await Promise.all([
+    prisma.snapshot.count({ where }),
+    prisma.snapshot.findMany({
+      where,
+      orderBy: { crawledAt: 'desc' },
+      skip,
+      take: pageSize,
+      select: {
+        id: true,
+        competitorId: true,
+        crawledAt: true,
+        changeType: true,
+        summary: true,
+        importance: true,
+        archivedAt: true,
+        readAt: true,
+      },
+    }),
+  ]);
+
+  // 总数放响应头，不动 body（向后兼容）
+  return NextResponse.json(snapshots, {
+    headers: {
+      'X-Total-Count': String(total),
+      'X-Page': String(page),
+      'X-Page-Size': String(pageSize),
     },
   });
-
-  return NextResponse.json(snapshots);
 }
