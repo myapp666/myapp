@@ -36,6 +36,23 @@ const ARCHIVE_VIEW_PARAMS: Record<ArchiveView, string> = {
   all: 'all',
 };
 
+// 重要度筛选
+const IMPORTANCE_LEVELS = ['高', '中', '低'] as const;
+type ImportanceLevel = (typeof IMPORTANCE_LEVELS)[number];
+
+const DEFAULT_SELECTED_IMPORTANCE: ReadonlySet<ImportanceLevel> = new Set(['高', '中']);
+const IMPORTANCE_FILTER_KEY = 'dashboard:filter:importance';
+
+const IMPORTANCE_CHIP_ACTIVE: Record<ImportanceLevel, string> = {
+  高: 'bg-red-100 text-red-700 border-red-200',
+  中: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  低: 'bg-green-100 text-green-700 border-green-200',
+};
+
+function isImportanceLevel(s: unknown): s is ImportanceLevel {
+  return typeof s === 'string' && (IMPORTANCE_LEVELS as readonly string[]).includes(s);
+}
+
 function daysSince(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const t = new Date(iso).getTime();
@@ -55,6 +72,12 @@ export default function DashboardPage() {
   const [archiveView, setArchiveView] = useState<ArchiveView>('active');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+
+  // 重要度筛选：默认 ['高', '中']（隐藏低），从 localStorage 恢复用户偏好
+  const [selectedImportance, setSelectedImportance] = useState<Set<ImportanceLevel>>(
+    () => new Set<ImportanceLevel>(DEFAULT_SELECTED_IMPORTANCE),
+  );
+  const [importanceHydrated, setImportanceHydrated] = useState(false);
 
   // 用来强制重新拉取列表（执行批量操作后用）
   const [refreshKey, setRefreshKey] = useState(0);
@@ -112,6 +135,31 @@ export default function DashboardPage() {
     load();
   }, [selectedCompetitorId, archiveView, refreshKey]);
 
+  // 从 localStorage 恢复用户上次选中的重要度（仅客户端，避免 SSR hydration 不匹配）
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(IMPORTANCE_FILTER_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as unknown;
+        if (Array.isArray(parsed)) {
+          const valid = parsed.filter(isImportanceLevel);
+          if (valid.length > 0) {
+            setSelectedImportance(new Set(valid));
+          }
+        }
+      }
+    } catch {}
+    setImportanceHydrated(true);
+  }, []);
+
+  // 用户改变后持久化；hydration 前的默认状态不写回（避免覆盖已有偏好）
+  useEffect(() => {
+    if (!importanceHydrated) return;
+    try {
+      localStorage.setItem(IMPORTANCE_FILTER_KEY, JSON.stringify([...selectedImportance]));
+    } catch {}
+  }, [selectedImportance, importanceHydrated]);
+
   const importanceColor = (i?: string | null) => {
     const map: Record<string, string> = {
       高: 'bg-red-100 text-red-700',
@@ -120,6 +168,39 @@ export default function DashboardPage() {
     };
     return map[i || ''] || 'bg-gray-100 text-gray-700';
   };
+
+  // 重要度筛选派生值
+  const toggleImportance = (level: ImportanceLevel) => {
+    setSelectedImportance((prev) => {
+      const next = new Set(prev);
+      if (next.has(level)) next.delete(level);
+      else next.add(level);
+      return next;
+    });
+  };
+  const resetImportanceFilter = () => {
+    setSelectedImportance(new Set(DEFAULT_SELECTED_IMPORTANCE));
+  };
+
+  // 全部 recent 里的各重要度计数（用来在 chip 上展示）
+  const importanceCounts = useMemo(() => {
+    const counts: Record<string, number> = { 高: 0, 中: 0, 低: 0, '': 0 };
+    for (const s of recent) {
+      const key = s.importance ?? '';
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [recent]);
+
+  // 应用重要度筛选后的列表；
+  // 空/未分类的 importance 永远保留（AI 解读失败的情况不应被隐藏）
+  const filteredRecent = useMemo(() => {
+    return recent.filter((s) => {
+      const imp = s.importance ?? '';
+      if (!imp) return true;
+      return selectedImportance.has(imp as ImportanceLevel);
+    });
+  }, [recent, selectedImportance]);
 
   const selectedName =
     selectedCompetitorId === 'all'
@@ -142,10 +223,12 @@ export default function DashboardPage() {
       setSelectedIds(new Set());
       return;
     }
-    setSelectedIds(new Set(recent.map((s) => s.id)));
+    setSelectedIds(new Set(filteredRecent.map((s) => s.id)));
   };
-  const allVisibleChecked = recent.length > 0 && selectedIds.size === recent.length;
-  const someVisibleChecked = selectedIds.size > 0 && selectedIds.size < recent.length;
+  const allVisibleChecked =
+    filteredRecent.length > 0 && selectedIds.size === filteredRecent.length;
+  const someVisibleChecked =
+    selectedIds.size > 0 && selectedIds.size < filteredRecent.length;
 
   // 批量归档 / 取消归档
   const bulkArchive = async (archived: boolean) => {
@@ -217,7 +300,7 @@ export default function DashboardPage() {
             <p className="text-xs text-slate-500 mt-1">
               当前筛选：<span className="font-medium text-slate-700">{selectedName}</span>
               {' · '}
-              <span>共 <span className="font-medium text-slate-700">{recent.length}</span> 条</span>
+              <span>显示 <span className="font-medium text-slate-700">{filteredRecent.length}</span> / {recent.length} 条</span>
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -256,6 +339,43 @@ export default function DashboardPage() {
               </select>
             </div>
           </div>
+        </div>
+
+        {/* 重要度筛选 chips */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-slate-500 whitespace-nowrap">重要度：</span>
+          {IMPORTANCE_LEVELS.map((level) => {
+            const active = selectedImportance.has(level);
+            const count = importanceCounts[level] ?? 0;
+            return (
+              <button
+                key={level}
+                type="button"
+                onClick={() => toggleImportance(level)}
+                aria-pressed={active}
+                className={`px-3 py-1 text-xs rounded-full border transition ${
+                  active
+                    ? IMPORTANCE_CHIP_ACTIVE[level]
+                    : 'bg-white text-slate-400 border-slate-200'
+                }`}
+              >
+                <span className={active ? 'font-medium' : 'line-through'}>{level}</span>
+                <span className="ml-1.5 opacity-70">{count}</span>
+              </button>
+            );
+          })}
+          {importanceCounts[''] ? (
+            <span className="ml-1 px-2 py-1 text-xs rounded-full border border-dashed border-slate-200 text-slate-400">
+              未分类 {importanceCounts['']}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={resetImportanceFilter}
+            className="ml-1 px-2 py-1 text-xs text-slate-500 hover:text-slate-700 underline-offset-2 hover:underline"
+          >
+            重置
+          </button>
         </div>
 
         {/* 批量操作工具条（仅当选中至少 1 项时显示） */}
@@ -307,6 +427,18 @@ export default function DashboardPage() {
               </Link>
             )}
           </div>
+        ) : filteredRecent.length === 0 ? (
+          <div className="bg-white p-8 rounded-lg border border-slate-200 text-center text-slate-500 text-sm">
+            当前重要度筛选下没有匹配项。点
+            <button
+              type="button"
+              onClick={resetImportanceFilter}
+              className="mx-1 text-blue-600 hover:underline"
+            >
+              重置
+            </button>
+            看全部。
+          </div>
         ) : (
           <div className="space-y-2">
             {/* 表头：全选 */}
@@ -323,12 +455,12 @@ export default function DashboardPage() {
               />
               <span>
                 {selectedIds.size > 0
-                  ? `已选 ${selectedIds.size} / ${recent.length}`
-                  : `共 ${recent.length} 条`}
+                  ? `已选 ${selectedIds.size} / ${filteredRecent.length}`
+                  : `共 ${filteredRecent.length} 条`}
               </span>
             </div>
 
-            {recent.map((s) => {
+            {filteredRecent.map((s) => {
               const isArchived = !!s.archivedAt;
               const archivedDays = isArchived ? daysSince(s.archivedAt) : null;
               return (
