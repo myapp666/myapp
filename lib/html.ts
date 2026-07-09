@@ -11,7 +11,7 @@ export interface HtmlAnalysis {
 
 // ---------- turndown 单例 ----------
 
-const turndown = new TurndownService();
+const turndown = new TurndownService({ headingStyle: 'atx' });
 
 // ---------- 1) HTML → Markdown ----------
 
