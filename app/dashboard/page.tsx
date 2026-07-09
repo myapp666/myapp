@@ -127,6 +127,11 @@ export default function DashboardPage() {
   );
   const [importanceHydrated, setImportanceHydrated] = useState(false);
 
+  // 分页：每页 100 条；切换 filter 时自动回到第 1 页
+  const PAGE_SIZE = 100;
+  const [page, setPage] = useState<number>(1);
+  const [total, setTotal] = useState<number>(0);
+
   // 用来强制重新拉取列表（执行批量操作后用）
   const [refreshKey, setRefreshKey] = useState(0);
   const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -181,31 +186,40 @@ export default function DashboardPage() {
     load();
   }, []);
 
-  // 加载 snapshots（按 竞对 + 归档视图 + 只看未读 筛选）
+  // 加载 snapshots（按 竞对 + 归档视图 + 分页 筛选）
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
         const params = new URLSearchParams();
-        params.set('limit', '100');
         params.set('archived', ARCHIVE_VIEW_PARAMS[archiveView]);
+        params.set('page', String(page));
+        params.set('pageSize', String(PAGE_SIZE));
         if (selectedCompetitorId !== 'all') {
           params.set('competitor_id', selectedCompetitorId);
         }
         const res = await fetch(`/api/snapshots?${params.toString()}`);
         if (!res.ok) throw new Error('加载记录失败');
+        const totalHeader = res.headers.get('X-Total-Count');
+        setTotal(totalHeader ? Number(totalHeader) : 0);
         setRecent(await res.json());
         // 切换视图或竞对时清空多选
         setSelectedIds(new Set());
       } catch (err) {
         console.error(err);
         setRecent([]);
+        setTotal(0);
       } finally {
         setLoading(false);
       }
     };
     load();
-  }, [selectedCompetitorId, archiveView, refreshKey]);
+  }, [selectedCompetitorId, archiveView, page, refreshKey]);
+
+  // 任何 filter 变化都把 page 重置到 1（但 page 自身变化不触发）
+  useEffect(() => {
+    setPage(1);
+  }, [selectedCompetitorId, archiveView]);
 
   // 从 localStorage 恢复用户上次选中的重要度（仅客户端，避免 SSR hydration 不匹配）
   useEffect(() => {
@@ -368,6 +382,10 @@ export default function DashboardPage() {
     }
   };
 
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const canPrev = page > 1;
+  const canNext = page < totalPages;
+
   return (
     <div className="space-y-8">
       <div>
@@ -402,11 +420,14 @@ export default function DashboardPage() {
       <div className="space-y-4">
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">近期变化</h3>
+            <h3 className="text-lg font-semibold text-slate-900">情报收集箱</h3>
             <p className="text-xs text-slate-500 mt-1">
               当前筛选：<span className="font-medium text-slate-700">{selectedName}</span>
               {' · '}
-              <span>显示 <span className="font-medium text-slate-700">{filteredRecent.length}</span> / {recent.length} 条</span>
+              <span>
+                第 <span className="font-medium text-slate-700">{page}</span> / {totalPages} 页 · 共
+                <span className="font-medium text-slate-700"> {total} </span>条
+              </span>
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -658,6 +679,31 @@ export default function DashboardPage() {
                 </div>
               );
             })}
+
+            {/* 分页控件 */}
+            {total > 0 && totalPages > 1 && (
+              <div className="flex items-center justify-between gap-4 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={!canPrev || loading}
+                  className="px-3 py-1.5 text-sm rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ← 上一页
+                </button>
+                <div className="text-xs text-slate-500">
+                  第 <span className="font-medium text-slate-700">{page}</span> / {totalPages} 页 · 每页 {PAGE_SIZE} 条
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={!canNext || loading}
+                  className="px-3 py-1.5 text-sm rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  下一页 →
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
