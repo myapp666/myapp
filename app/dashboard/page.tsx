@@ -115,6 +115,7 @@ export default function DashboardPage() {
   const [recent, setRecent] = useState<Snapshot[]>([]);
   const [monitorInterval, setMonitorInterval] = useState<number>(60);
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState(''); // snapshot 列表加载失败时给用户看
 
   // 归档视图与多选状态
   const [archiveView, setArchiveView] = useState<ArchiveView>('active');
@@ -198,8 +199,12 @@ export default function DashboardPage() {
         if (selectedCompetitorId !== 'all') {
           params.set('competitor_id', selectedCompetitorId);
         }
+        setPageError('');
         const res = await fetch(`/api/snapshots?${params.toString()}`);
-        if (!res.ok) throw new Error('加载记录失败');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `加载记录失败 (HTTP ${res.status})`);
+        }
         const totalHeader = res.headers.get('X-Total-Count');
         setTotal(totalHeader ? Number(totalHeader) : 0);
         setRecent(await res.json());
@@ -207,6 +212,7 @@ export default function DashboardPage() {
         setSelectedIds(new Set());
       } catch (err) {
         console.error(err);
+        setPageError(String(err));
         setRecent([]);
         setTotal(0);
       } finally {
@@ -388,6 +394,11 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {pageError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {pageError}
+        </div>
+      )}
       {/* 情报收集箱 */}
       <div className="space-y-4">
         <div className="flex items-end justify-between gap-4 flex-wrap">
