@@ -1,16 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import {
+  ImportanceFilter,
+  IMPORTANCE_LEVELS,
+  matchesImportanceFilter,
+  useImportanceFilter,
+  type Importance,
+} from '../../_components/ImportanceFilter';
 
 interface Snapshot {
   id: number;
   competitorId: number;
   crawledAt: string;
-  changeType?: string;
-  summary?: string;
-  importance?: string;
+  changeType?: string | null;
+  summary?: string | null;
+  importance?: string | null;
 }
 
 export default function SnapshotsPage() {
@@ -19,11 +26,13 @@ export default function SnapshotsPage() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [importanceFilter, setImportanceFilter] = useImportanceFilter();
 
   useEffect(() => {
     const fetchSnapshots = async () => {
       try {
-        const res = await fetch(`/api/snapshots?competitor_id=${competitorId}&limit=20`);
+        // 多拉一些给客户端筛选留余量；硬上限由 API 控制
+        const res = await fetch(`/api/snapshots?competitor_id=${competitorId}&limit=50`);
         if (!res.ok) throw new Error('获取记录失败');
         const data = await res.json();
         setSnapshots(data);
@@ -41,7 +50,7 @@ export default function SnapshotsPage() {
     return new Date(dateStr).toLocaleString('zh-CN');
   };
 
-  const getImportanceColor = (importance?: string) => {
+  const getImportanceColor = (importance?: string | null) => {
     const map: Record<string, string> = {
       高: 'bg-red-100 text-red-700',
       中: 'bg-yellow-100 text-yellow-700',
@@ -49,6 +58,23 @@ export default function SnapshotsPage() {
     };
     return map[importance || ''] || 'bg-gray-100 text-gray-700';
   };
+
+  const importanceCounts = useMemo(() => {
+    const counts: Partial<Record<Importance, number>> = {};
+    for (const s of snapshots) {
+      const imp = s.importance;
+      if (imp && (IMPORTANCE_LEVELS as readonly string[]).includes(imp)) {
+        const k = imp as Importance;
+        counts[k] = (counts[k] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [snapshots]);
+
+  const filtered = useMemo(
+    () => snapshots.filter((s) => matchesImportanceFilter(s.importance, importanceFilter)),
+    [snapshots, importanceFilter],
+  );
 
   if (loading) {
     return <div className="text-slate-600">加载中...</div>;
@@ -63,6 +89,21 @@ export default function SnapshotsPage() {
         <h2 className="text-2xl font-bold text-slate-900">历史记录</h2>
       </div>
 
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <p className="text-xs text-slate-500">
+          显示 <span className="font-medium text-slate-700">{filtered.length}</span> /{' '}
+          {snapshots.length} 条
+        </p>
+      </div>
+
+      <div className="bg-white px-4 py-3 rounded-lg border border-slate-200">
+        <ImportanceFilter
+          value={importanceFilter}
+          onChange={setImportanceFilter}
+          counts={importanceCounts}
+        />
+      </div>
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
           {error}
@@ -74,8 +115,19 @@ export default function SnapshotsPage() {
           <div className="text-center py-12 text-slate-500 bg-white rounded-lg border border-slate-200">
             暂无采集记录
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-12 text-slate-500 bg-white rounded-lg border border-slate-200 text-sm">
+            当前重要度筛选下没有匹配的记录。
+            <button
+              type="button"
+              onClick={() => setImportanceFilter(new Set(IMPORTANCE_LEVELS))}
+              className="text-blue-600 hover:underline ml-1"
+            >
+              显示全部重要度
+            </button>
+          </div>
         ) : (
-          snapshots.map((snap) => (
+          filtered.map((snap) => (
             <Link
               key={snap.id}
               href={`/dashboard/snapshots/${competitorId}/${snap.id}`}
@@ -90,7 +142,9 @@ export default function SnapshotsPage() {
                   </p>
                 </div>
                 {snap.importance && (
-                  <span className={`ml-4 px-3 py-1 text-sm font-medium rounded-full ${getImportanceColor(snap.importance)}`}>
+                  <span
+                    className={`ml-4 px-3 py-1 text-sm font-medium rounded-full ${getImportanceColor(snap.importance)}`}
+                  >
                     {snap.importance}
                   </span>
                 )}
