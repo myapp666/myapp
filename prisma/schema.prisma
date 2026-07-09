@@ -45,9 +45,11 @@ model Snapshot {
   changeType   String?    @db.VarChar(64)
   summary      String?    @db.Text
   importance   String?    @db.VarChar(16)
+  archivedAt   DateTime?  // null = 未归档；非 null = 归档时刻（软删除）
   competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
   user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([competitorId])
   @@index([userId])
+  @@index([userId, archivedAt])
 }
