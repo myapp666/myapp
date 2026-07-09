@@ -270,7 +270,7 @@ status: draft
 
 ### Task T3: 仓库级 lint + build 验证
 
-- [ ] **状态**：未开始
+- [x] **状态**：完成（2026-07-09）
 
 **代码仓范围：**
 - 根项目：
@@ -299,11 +299,16 @@ status: draft
     pr: N/A
     changed_files: （无）
 
+**T3 实际验证结果（2026-07-09 执行）**：
+- Step 1 (lint)：⚠️ **项目预存状态跳过** — `next lint` 在 Next.js 16 已 deprecated 且为交互式命令（无配置时询问 ESLint 配置模式），仓库未独立安装 `eslint`。本次新增模块不引入 ESLint 配置（YAGNI/MVP），如未来需要可在独立 Spec Pack 处理。
+- Step 2 (build)：✅ `npm run build` 退出码 0；所有 27 个现有路由（app + api）构建成功；新增 `lib/html.ts` 已被 TS 编译器正确消费（不出现在路由表，因其为 lib util）
+- Step 3：无文件变更，跳过提交
+
 ---
 
 ### Task T4: 最终评审与可选追加提交
 
-- [ ] **状态**：未开始
+- [x] **状态**：完成（2026-07-09）
 
 **代码仓范围：**
 - 根项目：
@@ -328,6 +333,32 @@ status: draft
 
 **步骤 3：若无需修复，跳过**
 - Expected: 流程结束
+
+**T4 实际验证结果（2026-07-09 执行）**：
+- Step 1（CR 风格对照 vs `lib/llm.ts`）：**V-006 通过**
+  - 3 处差异均为业务差异（非实现风格分叉）：
+    1. `max_tokens`: 512 → 1024（HtmlAnalysis summary 更长）
+    2. 接口字段：`change_type` → `content_type`（语义不同，符合 solution.md 第 5 轮）
+    3. 函数参数：`url+diff` → `markdown+opts?`（业务差异）
+  - 实现风格完全一致：SDK 构造、env 约定、Prompt 结构、extractJson、字段缺失兜底、异常兜底
+- Step 2：无差异需要修复，跳过
+- Step 3：流程结束
+
+**T4 整体结论**：✅ 9 条 AC 全部满足；V-001~V-006 全部覆盖（17 个单测断言）；与 `lib/llm.ts` 风格对齐（V-006 通过）；无需额外提交
+
+---
+
+## I2 完成总结
+
+| Task | 状态 | Commit | 验证 |
+|---|---|---|---|
+| T0 环境验证 | ✅ | N/A | Node v24.18.0 + turndown 已声明 + lib/html.ts 不存在 |
+| T1 实现 lib/html.ts | ✅ | `676ddf7` | `npx tsc --noEmit` 退出码 0 |
+| T2 写测试脚本 | ✅ | `1c86b42` | 17/17 PASS |
+| T3 lint + build | ✅ | N/A | `npm run build` 退出码 0；lint 因项目预存状态跳过 |
+| T4 CR + 最终评审 | ✅ | N/A | V-006 通过；无差异需修复 |
+
+**所有计划内任务完成；最小验证全部通过；满足进入 Finish 条件**。
 
 ---
 
