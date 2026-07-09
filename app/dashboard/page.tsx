@@ -25,6 +25,7 @@ interface Snapshot {
   summary?: string | null;
   importance?: string | null;
   archivedAt?: string | null;
+  readAt?: string | null;
 }
 
 // 视图模式：只显示未归档 / 只显示已归档 / 全部
@@ -60,6 +61,53 @@ function daysSince(iso: string | null | undefined): number | null {
   return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
 }
 
+// summary 分段解析：识别 【变更】【意图】【行动】【理由】四类标签
+// 返回结构化的段列表，按出现顺序渲染
+type SummarySection = { key: 'change' | 'intent' | 'action' | 'reason' | 'plain'; text: string };
+
+const SECTION_KEY_MAP: Record<string, SummarySection['key']> = {
+  变更: 'change',
+  意图: 'intent',
+  行动: 'action',
+  理由: 'reason',
+};
+
+function parseSummarySections(summary: string): SummarySection[] {
+  const pattern = /【(变更|意图|行动|理由)】/g;
+  const out: SummarySection[] = [];
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(summary)) !== null) {
+    if (m.index > lastIndex) {
+      const leading = summary.slice(lastIndex, m.index).trim();
+      if (leading) out.push({ key: 'plain', text: leading });
+    }
+    const key = SECTION_KEY_MAP[m[1]] ?? 'plain';
+    lastIndex = pattern.lastIndex;
+    // 找到下一个段头位置
+    const rest = summary.slice(lastIndex);
+    const nextMatch = rest.match(/【(变更|意图|行动|理由)】/);
+    const segEnd = nextMatch ? nextMatch.index ?? rest.length : rest.length;
+    out.push({ key, text: rest.slice(0, segEnd).trim() });
+    lastIndex += segEnd;
+    // 重置 lastIndex 因为我们用 slice 处理
+  }
+  if (lastIndex < summary.length) {
+    const trailing = summary.slice(lastIndex).trim();
+    if (trailing) out.push({ key: 'plain', text: trailing });
+  }
+  if (out.length === 0 && summary) out.push({ key: 'plain', text: summary });
+  return out;
+}
+
+const SECTION_STYLES: Record<SummarySection['key'], { label: string; bg: string; text: string; ring: string }> = {
+  change: { label: '变更', bg: 'bg-blue-50',    text: 'text-blue-900',    ring: 'ring-blue-200' },
+  intent: { label: '意图', bg: 'bg-purple-50',  text: 'text-purple-900',  ring: 'ring-purple-200' },
+  action: { label: '行动', bg: 'bg-orange-50',  text: 'text-orange-900',  ring: 'ring-orange-200' },
+  reason: { label: '理由', bg: 'bg-emerald-50', text: 'text-emerald-900', ring: 'ring-emerald-200' },
+  plain:  { label: '',    bg: 'bg-slate-50',   text: 'text-slate-800',   ring: 'ring-slate-200' },
+};
+
 export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
@@ -79,9 +127,36 @@ export default function DashboardPage() {
   );
   const [importanceHydrated, setImportanceHydrated] = useState(false);
 
+  // "只看未读" 切换（默认关）
+  const [unreadOnly, setUnreadOnly] = useState<boolean>(false);
+
   // 用来强制重新拉取列表（执行批量操作后用）
   const [refreshKey, setRefreshKey] = useState(0);
   const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  // 详情弹窗：当前打开的 snapshot id（null = 未打开）
+  const [openSnapshotId, setOpenSnapshotId] = useState<number | null>(null);
+  const closeModal = useCallback(() => setOpenSnapshotId(null), []);
+
+  // ESC 键关闭弹窗
+  useEffect(() => {
+    if (openSnapshotId === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeModal();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openSnapshotId, closeModal]);
+
+  // 弹窗打开时锁滚动
+  useEffect(() => {
+    if (openSnapshotId === null) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [openSnapshotId]);
 
   // 初次加载 user / competitors / 配置
   useEffect(() => {
@@ -109,7 +184,7 @@ export default function DashboardPage() {
     load();
   }, []);
 
-  // 加载 snapshots（按 竞对 + 归档视图 筛选）
+  // 加载 snapshots（按 竞对 + 归档视图 + 只看未读 筛选）
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -117,6 +192,7 @@ export default function DashboardPage() {
         const params = new URLSearchParams();
         params.set('limit', '100');
         params.set('archived', ARCHIVE_VIEW_PARAMS[archiveView]);
+        if (unreadOnly) params.set('read', 'false');
         if (selectedCompetitorId !== 'all') {
           params.set('competitor_id', selectedCompetitorId);
         }
@@ -133,7 +209,7 @@ export default function DashboardPage() {
       }
     };
     load();
-  }, [selectedCompetitorId, archiveView, refreshKey]);
+  }, [selectedCompetitorId, archiveView, unreadOnly, refreshKey]);
 
   // 从 localStorage 恢复用户上次选中的重要度（仅客户端，避免 SSR hydration 不匹配）
   useEffect(() => {
@@ -262,6 +338,46 @@ export default function DashboardPage() {
     [],
   );
 
+  // 单条标为已读（fire-and-forget + 本地乐观更新）
+  const markRead = useCallback((id: number, read: boolean) => {
+    const next = new Date().toISOString();
+    setRecent((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, readAt: read ? next : null } : s)),
+    );
+    fetch(`/api/snapshots/${id}/read`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ read }),
+    }).catch((err) => console.error('mark-read failed', err));
+  }, []);
+
+  // 批量标已读 / 取消已读
+  const bulkRead = async (read: boolean) => {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch('/api/snapshots/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds], read }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(`操作失败：${data.error ?? res.statusText}`);
+        return;
+      }
+      triggerRefresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  // 未读计数（用于"只看未读"toggle 上的 badge）
+  const unreadCount = useMemo(
+    () => recent.filter((s) => !s.readAt).length,
+    [recent],
+  );
+
   return (
     <div className="space-y-8">
       <div>
@@ -376,6 +492,60 @@ export default function DashboardPage() {
           >
             重置
           </button>
+          {/* 只看未读 toggle - 单独一栏，避免视觉挤在一起 */}
+        </div>
+
+        {/* 只看未读 toggle */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setUnreadOnly((v) => !v)}
+            aria-pressed={unreadOnly}
+            className={`inline-flex items-center gap-2 px-3 py-1 text-xs rounded-full border transition ${
+              unreadOnly
+                ? 'bg-blue-50 text-blue-700 border-blue-300'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-blue-200'
+            }`}
+          >
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                unreadOnly ? 'bg-blue-500' : 'bg-slate-300'
+              }`}
+            />
+            只看未读
+            <span className="opacity-70">({unreadCount})</span>
+          </button>
+          {unreadOnly && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (recent.length === 0) return;
+                const ids = recent.filter((s) => !s.readAt).map((s) => s.id);
+                if (ids.length === 0) return;
+                if (!confirm(`将当前视图下 ${ids.length} 条未读全部标为已读，继续？`)) return;
+                setBulkBusy(true);
+                try {
+                  const res = await fetch('/api/snapshots/read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids, read: true }),
+                  });
+                  if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    alert(`操作失败：${data.error ?? res.statusText}`);
+                    return;
+                  }
+                  triggerRefresh();
+                } finally {
+                  setBulkBusy(false);
+                }
+              }}
+              disabled={bulkBusy || unreadCount === 0}
+              className="px-3 py-1 text-xs text-blue-700 hover:underline disabled:opacity-50"
+            >
+              全部标为已读
+            </button>
+          )}
         </div>
 
         {/* 批量操作工具条（仅当选中至少 1 项时显示） */}
@@ -397,6 +567,23 @@ export default function DashboardPage() {
               className="px-3 py-1 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               取消归档
+            </button>
+            <span className="w-px h-5 bg-blue-200" aria-hidden />
+            <button
+              type="button"
+              onClick={() => bulkRead(true)}
+              disabled={bulkBusy}
+              className="px-3 py-1 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              标为已读
+            </button>
+            <button
+              type="button"
+              onClick={() => bulkRead(false)}
+              disabled={bulkBusy}
+              className="px-3 py-1 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              标为未读
             </button>
             <button
               type="button"
@@ -463,13 +650,16 @@ export default function DashboardPage() {
             {filteredRecent.map((s) => {
               const isArchived = !!s.archivedAt;
               const archivedDays = isArchived ? daysSince(s.archivedAt) : null;
+              const isUnread = !s.readAt;
               return (
                 <div
                   key={s.id}
                   className={`flex items-stretch gap-3 bg-white p-4 rounded-lg border transition ${
                     isArchived
                       ? 'border-slate-200 bg-slate-50/60'
-                      : 'border-slate-200 hover:shadow-md hover:border-blue-300'
+                      : isUnread
+                        ? 'border-slate-200 border-l-4 border-l-blue-400 hover:shadow-md hover:border-blue-300'
+                        : 'border-slate-200 hover:shadow-md hover:border-blue-300'
                   }`}
                 >
                   <div className="flex items-center pt-1">
@@ -483,11 +673,24 @@ export default function DashboardPage() {
                   </div>
                   <Link
                     href={`/dashboard/snapshots/${s.competitorId}/${s.id}`}
+                    onClick={(e) => {
+                      // 阻止跳转，就地打开弹窗；只对未读项触发标记
+                      e.preventDefault();
+                      if (isUnread) markRead(s.id, true);
+                      setOpenSnapshotId(s.id);
+                    }}
                     className="flex-1 min-w-0"
                   >
                     <div className="flex justify-between items-start gap-3">
                       <div className={`flex-1 min-w-0 ${isArchived ? 'opacity-60' : ''}`}>
                         <div className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
+                          {isUnread && (
+                            <span
+                              className="inline-block w-2 h-2 rounded-full bg-blue-500"
+                              aria-label="未读"
+                              title="未读"
+                            />
+                          )}
                           {selectedCompetitorId === 'all' && competitorNameById.has(s.competitorId) && (
                             <span className="font-medium text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
                               {competitorNameById.get(s.competitorId)}
@@ -500,7 +703,7 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </div>
-                        <div className="font-medium text-slate-900 mt-1">
+                        <div className={`mt-1 ${isUnread ? 'font-semibold text-slate-900' : 'font-medium text-slate-900'}`}>
                           {s.changeType || '未分类'}
                         </div>
                         <div className="text-sm text-slate-600 mt-1 line-clamp-2">
@@ -537,6 +740,207 @@ export default function DashboardPage() {
           </ol>
         </div>
       )}
+
+      {/* 详情弹窗 */}
+      {openSnapshotId !== null &&
+        (() => {
+          const snap = recent.find((s) => s.id === openSnapshotId);
+          if (!snap) {
+            // 列表已刷新/该项被过滤掉了，安全关闭
+            return (
+              <div
+                className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+                onClick={closeModal}
+              >
+                <div className="bg-white rounded-lg p-6 text-slate-600 text-sm">
+                  该记录已不可见（可能被过滤），点击任意处关闭。
+                </div>
+              </div>
+            );
+          }
+          const comp = competitorNameById.get(snap.competitorId);
+          const sections = parseSummarySections(snap.summary ?? '');
+          const isUnread = !snap.readAt;
+          const isArchived = !!snap.archivedAt;
+          const modalBusy = bulkBusy; // 复用 busy 状态
+          return (
+            <div
+              className="fixed inset-0 z-50 overflow-y-auto"
+              role="dialog"
+              aria-modal="true"
+            >
+              <div
+                className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+                onClick={closeModal}
+                aria-hidden="true"
+              />
+              <div className="relative min-h-screen flex items-start justify-center p-4 sm:p-8">
+                <div
+                  className="relative w-full max-w-2xl bg-white rounded-xl shadow-2xl ring-1 ring-slate-200 my-8"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-100">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {comp && (
+                          <span className="font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs">
+                            {comp}
+                          </span>
+                        )}
+                        {isUnread && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                            未读
+                          </span>
+                        )}
+                        {isArchived && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-500">
+                            已归档
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        {new Date(snap.crawledAt).toLocaleString('zh-CN')}
+                      </div>
+                      <h2 className="text-xl font-bold text-slate-900 mt-2">
+                        {snap.changeType || '未分类'}
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {snap.importance && (
+                        <span
+                          className={`px-3 py-1 text-xs rounded-full whitespace-nowrap ${importanceColor(
+                            snap.importance,
+                          )}`}
+                        >
+                          重要度 · {snap.importance}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={closeModal}
+                        aria-label="关闭"
+                        className="w-8 h-8 inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                      >
+                        <span className="text-xl leading-none">×</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Body */}
+                  <div className="p-5 space-y-3">
+                    {sections.length === 0 || !snap.summary ? (
+                      <div className="text-sm text-slate-400 italic">（无摘要）</div>
+                    ) : (
+                      sections.map((sec, idx) => {
+                        const style = SECTION_STYLES[sec.key];
+                        return (
+                          <div
+                            key={idx}
+                            className={`rounded-lg p-4 ring-1 ${style.bg} ${style.ring}`}
+                          >
+                            {style.label && (
+                              <div
+                                className={`text-xs font-semibold mb-1 ${style.text}`}
+                              >
+                                {style.label}
+                              </div>
+                            )}
+                            <div
+                              className={`text-sm leading-relaxed whitespace-pre-wrap ${style.text}`}
+                            >
+                              {sec.text}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="flex items-center justify-between gap-3 p-4 border-t border-slate-100 bg-slate-50/60 rounded-b-xl">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setBulkBusy(true);
+                          try {
+                            const res = await fetch(
+                              `/api/snapshots/${snap.id}/read`,
+                              {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ read: !isUnread }),
+                              },
+                            );
+                            if (!res.ok) {
+                              const data = await res.json().catch(() => ({}));
+                              alert(`操作失败：${data.error ?? res.statusText}`);
+                              return;
+                            }
+                            markRead(snap.id, !isUnread);
+                          } finally {
+                            setBulkBusy(false);
+                          }
+                        }}
+                        disabled={modalBusy}
+                        className={`px-3 py-1.5 text-sm rounded border transition disabled:opacity-50 ${
+                          isUnread
+                            ? 'bg-white border-blue-300 text-blue-700 hover:bg-blue-50'
+                            : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {isUnread ? '标为已读' : '标为未读'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setBulkBusy(true);
+                          try {
+                            const res = await fetch(
+                              `/api/snapshots/${snap.id}/archive`,
+                              {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ archived: !isArchived }),
+                              },
+                            );
+                            if (!res.ok) {
+                              const data = await res.json().catch(() => ({}));
+                              alert(`操作失败：${data.error ?? res.statusText}`);
+                              return;
+                            }
+                            triggerRefresh();
+                          } finally {
+                            setBulkBusy(false);
+                          }
+                        }}
+                        disabled={modalBusy}
+                        className={`px-3 py-1.5 text-sm rounded border transition disabled:opacity-50 ${
+                          isArchived
+                            ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                            : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {isArchived ? '取消归档' : '归档'}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeModal}
+                      className="px-4 py-1.5 text-sm rounded bg-slate-900 text-white hover:bg-slate-700 transition"
+                    >
+                      关闭
+                    </button>
+                  </div>
+
+                  <div className="px-5 pb-3 text-xs text-slate-400">记录 ID: {snap.id}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }

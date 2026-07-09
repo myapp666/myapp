@@ -14,6 +14,19 @@ function parseArchivedFilter(raw: string | null): Prisma.DateTimeNullableFilter<
   return { equals: null }; // 缺省 + 其它值：仅未归档
 }
 
+// read query 取值同 archived：
+//   缺省 → 全部（不限，因为 dashboard 自己用本地状态管"未读"切换）
+//   "true"  → 只返回已读
+//   "false" → 只返回未读
+//   "all"   → 全部
+function parseReadFilter(raw: string | null): Prisma.DateTimeNullableFilter<'Snapshot'> | undefined {
+  const v = (raw ?? '').toLowerCase();
+  if (['', 'all', '*'].includes(v)) return undefined;
+  if (['true', '1', 'yes'].includes(v)) return { not: null };
+  if (['false', '0', 'no', 'unread'].includes(v)) return { equals: null };
+  return undefined;
+}
+
 export async function GET(request: NextRequest) {
   const userId = getUserIdFromRequest(request);
   if (!userId) return NextResponse.json({ error: '未登录' }, { status: 401 });
@@ -21,6 +34,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const competitorId = searchParams.get('competitor_id');
   const archivedRaw = searchParams.get('archived');
+  const readRaw = searchParams.get('read');
   const limit = Math.min(Number(searchParams.get('limit') ?? '20'), 100);
 
   const where: Prisma.SnapshotWhereInput = { userId };
@@ -35,6 +49,10 @@ export async function GET(request: NextRequest) {
   if (archivedClause !== undefined) {
     where.archivedAt = archivedClause;
   }
+  const readClause = parseReadFilter(readRaw);
+  if (readClause !== undefined) {
+    where.readAt = readClause;
+  }
 
   const snapshots = await prisma.snapshot.findMany({
     where,
@@ -48,6 +66,7 @@ export async function GET(request: NextRequest) {
       summary: true,
       importance: true,
       archivedAt: true,
+      readAt: true,
     },
   });
 
