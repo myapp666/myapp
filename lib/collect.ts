@@ -98,7 +98,9 @@ async function collectByUrl(websiteUrl: string, competitorIds: number[]): Promis
 }
 
 export async function collectAll(): Promise<void> {
+  // 只采集用户未暂停的竞对（monitoringEnabled=false 的会被跳过，历史 snapshot 保留）
   const competitors = await prisma.competitor.findMany({
+    where: { monitoringEnabled: true },
     select: { id: true, websiteUrl: true },
   });
   if (competitors.length === 0) return;

@@ -10,6 +10,7 @@ interface Competitor {
   websiteUrl: string;
   industry?: string;
   notes?: string;
+  monitoringEnabled: boolean;
   createdAt: string;
 }
 
@@ -32,6 +33,8 @@ export default function CompetitorsPage() {
   const [industry, setIndustry] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // 暂停/恢复监控的 in-flight id 集合（防止用户连点导致竞态）
+  const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set());
 
   // —— AI 推荐面板状态 ——
   const [showAiPanel, setShowAiPanel] = useState(false);
@@ -102,6 +105,36 @@ export default function CompetitorsPage() {
       await fetchCompetitors();
     } catch (err) {
       setError(String(err));
+    }
+  };
+
+  // 暂停 / 恢复监控：只切换 monitoringEnabled，历史 snapshot 保留
+  const handleToggleMonitoring = async (id: number, nextEnabled: boolean) => {
+    if (togglingIds.has(id)) return; // 已有请求在飞，幂等忽略
+    setTogglingIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    try {
+      const res = await fetch(`/api/competitors/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monitoringEnabled: nextEnabled }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || '操作失败');
+      }
+      await fetchCompetitors();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -466,32 +499,66 @@ export default function CompetitorsPage() {
             </button>
           </div>
         ) : (
-          competitors.map((comp) => (
-            <div key={comp.id} className="bg-white p-4 rounded-lg border border-slate-200 flex justify-between items-start">
-              <div className="flex-1">
-                <h3 className="font-semibold text-slate-900">{comp.name}</h3>
-                <p className="text-sm text-slate-600 truncate">{comp.websiteUrl}</p>
-                <div className="mt-2 flex gap-2 text-xs text-slate-500">
-                  {comp.industry && <span className="bg-slate-100 px-2 py-1 rounded">{comp.industry}</span>}
-                  {comp.notes && <span className="bg-slate-100 px-2 py-1 rounded">{comp.notes}</span>}
+          competitors.map((comp) => {
+            const isMonitoring = comp.monitoringEnabled !== false; // 老数据无字段时按"监控中"兜底
+            const isToggling = togglingIds.has(comp.id);
+            return (
+              <div
+                key={comp.id}
+                className={`bg-white p-4 rounded-lg border flex justify-between items-start ${
+                  isMonitoring ? 'border-slate-200' : 'border-slate-200 bg-slate-50/60'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className={`font-semibold ${isMonitoring ? 'text-slate-900' : 'text-slate-500'}`}>
+                      {comp.name}
+                    </h3>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full border ${
+                        isMonitoring
+                          ? 'bg-green-50 text-green-700 border-green-200'
+                          : 'bg-slate-100 text-slate-500 border-slate-200'
+                      }`}
+                      title={isMonitoring ? '已开启自动监控' : '已暂停监控（历史保留）'}
+                    >
+                      {isMonitoring ? '监控中' : '已暂停'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-600 truncate">{comp.websiteUrl}</p>
+                  <div className="mt-2 flex gap-2 text-xs text-slate-500">
+                    {comp.industry && <span className="bg-slate-100 px-2 py-1 rounded">{comp.industry}</span>}
+                    {comp.notes && <span className="bg-slate-100 px-2 py-1 rounded">{comp.notes}</span>}
+                  </div>
+                </div>
+                <div className="flex gap-2 ml-4 flex-shrink-0">
+                  <Link
+                    href={`/dashboard/snapshots/${comp.id}`}
+                    className="px-3 py-1 text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition"
+                  >
+                    查看历史
+                  </Link>
+                  <button
+                    onClick={() => handleToggleMonitoring(comp.id, !isMonitoring)}
+                    disabled={isToggling}
+                    className={`px-3 py-1 text-sm rounded transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isMonitoring
+                        ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                        : 'bg-green-50 text-green-700 hover:bg-green-100'
+                    }`}
+                  >
+                    {isToggling ? '处理中…' : isMonitoring ? '暂停监控' : '恢复监控'}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(comp.id)}
+                    className="px-3 py-1 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded transition"
+                  >
+                    删除
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2 ml-4">
-                <Link
-                  href={`/dashboard/snapshots/${comp.id}`}
-                  className="px-3 py-1 text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition"
-                >
-                  查看历史
-                </Link>
-                <button
-                  onClick={() => handleDelete(comp.id)}
-                  className="px-3 py-1 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded transition"
-                >
-                  删除
-                </button>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

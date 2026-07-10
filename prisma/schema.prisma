@@ -22,18 +22,21 @@ model User {
 }
 
 model Competitor {
-  id         Int        @id @default(autoincrement())
-  userId     Int
-  name       String     @db.VarChar(255)
-  websiteUrl String     @db.VarChar(2048)
-  industry   String?    @db.VarChar(128)
-  notes      String?    @db.Text
-  createdAt  DateTime   @default(now())
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  snapshots  Snapshot[]
+  id                Int        @id @default(autoincrement())
+  userId            Int
+  name              String     @db.VarChar(255)
+  websiteUrl        String     @db.VarChar(2048)
+  industry          String?    @db.VarChar(128)
+  notes             String?    @db.Text
+  // 用户手动暂停监控开关：false 时 collectAll 跳过该竞对，历史 snapshot 保留
+  monitoringEnabled Boolean    @default(true)
+  createdAt         DateTime   @default(now())
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  snapshots         Snapshot[]
 
   @@unique([websiteUrl, userId], name: "uq_competitor_url_user")
   @@index([userId])
+  @@index([monitoringEnabled])
 }
 
 model Snapshot {

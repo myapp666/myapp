@@ -27,11 +27,12 @@ export async function PUT(request: NextRequest, { params }: Params) {
   if (!existing) return NextResponse.json({ error: '未找到' }, { status: 404 });
 
   const body = await request.json();
-  const { name, websiteUrl, industry, notes } = body as {
+  const { name, websiteUrl, industry, notes, monitoringEnabled } = body as {
     name?: string;
     websiteUrl?: string;
     industry?: string;
     notes?: string;
+    monitoringEnabled?: boolean;
   };
 
   if (websiteUrl) {
@@ -40,10 +41,24 @@ export async function PUT(request: NextRequest, { params }: Params) {
     }
   }
 
+  // 仅在调用方明确传了 monitoringEnabled（布尔）时才更新，避免被 undefined 覆盖
+  const data: {
+    name?: string;
+    websiteUrl?: string;
+    industry?: string;
+    notes?: string;
+    monitoringEnabled?: boolean;
+  } = {};
+  if (name !== undefined) data.name = name;
+  if (websiteUrl !== undefined) data.websiteUrl = websiteUrl;
+  if (industry !== undefined) data.industry = industry;
+  if (notes !== undefined) data.notes = notes;
+  if (typeof monitoringEnabled === 'boolean') data.monitoringEnabled = monitoringEnabled;
+
   try {
     const updated = await prisma.competitor.update({
       where: { id: Number(id) },
-      data: { name, websiteUrl, industry, notes },
+      data,
     });
     return NextResponse.json(updated);
   } catch (err: unknown) {
